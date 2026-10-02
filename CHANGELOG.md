@@ -10,7 +10,11 @@ All notable changes to `asignua/filament-xlsx-export` are documented here.
 - `ColumnFormat` DSL: number formats (`integer`, `decimal`, `money`, `percent`, `number('...')`), date formats, `text()`, `boolean()`, `width()`, `value()` closure, virtual columns, `divideBy()`, `formatted()`, `sum()` total row, `exclude()`, `unselected()`.
 - Optional title row (also the sheet name), caption row, frozen header, auto filter, column widths.
 - Export options that change the query: `exportOptions()` adds fields to the modal, `queryUsing()` receives their values.
-- Streaming mode: above `streaming.above_rows` (or with `->streamed()`) the file is streamed by a signed, short-lived, one-shot, same-user route from a rehydrated Livewire component, with no Livewire buffering; `streaming.hard_cap` bounds it.
+- Streaming mode: above `streaming.above_rows` (or with `->streamed()`) the file is streamed by a signed, short-lived, one-shot, same-user route from a rehydrated Livewire component, with no Livewire buffering; `streaming.hard_cap` bounds it, and so does an explicit `->rowLimit()`.
+- Security: panels with tenancy never stream (the download request cannot carry the tenant, so Filament's tenant scope would not apply and the file would hold every tenant's rows); the route also refuses a token issued for such a panel. The route boots the panel like Filament's own `SetUpPanel` middleware, spends a token atomically (`Cache::add`), and checks the signature in the controller, so a custom route cannot lose the check. The route no longer carries the `signed` middleware.
+- Security: the title, caption and footer rows are written as text cells, like the data, so a value starting with `=` (for example a search term echoed in the caption) cannot become a formula.
+- A link that cannot be used (expired, used, another user's, action not found) sends the user back to the page with a notification instead of a bare 403/410 page.
+- A page header action and a table action with the same name are told apart by the streaming route.
 - `->footer()` lines under the data and total rows.
 - Memory-safe chunked reads (`lazy()`), a configurable row limit and a friendly notification when it is exceeded.
 - `ExportsTypedXlsx` trait for Filament's own queued `Exporter` classes: typed cells, widths, frozen header and filter in the XLSX they produce.

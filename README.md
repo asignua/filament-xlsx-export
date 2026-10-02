@@ -7,7 +7,7 @@
 [![License](https://img.shields.io/packagist/l/asignua/filament-xlsx-export.svg?style=flat-square)](https://github.com/asignua/filament-xlsx-export/blob/main/LICENSE.md)
 [![Plumb score](https://plumbphp.dev/badges/asignua/filament-xlsx-export/composite.svg)](https://plumbphp.dev/asignua/filament-xlsx-export)
 
-<img class="filament-hidden" src="https://raw.githubusercontent.com/asignua/filament-xlsx-export/v1.0.0/art/cover.jpg" alt="Filament XLSX Export">
+<img class="filament-hidden" src="https://raw.githubusercontent.com/asignua/filament-xlsx-export/main/art/cover.jpg" alt="Filament XLSX Export">
 
 "Download what is on the screen" as a real Excel file: the table's current filters, search and sort — or the rows
 you ticked — streamed straight to the browser, with numbers that are numbers and dates that are dates.
@@ -43,11 +43,11 @@ This plugin does exactly that, and keeps core's `Exporter` usable too (see [Type
 
 The export modal with the column picker:
 
-![Export modal](https://raw.githubusercontent.com/asignua/filament-xlsx-export/v1.0.0/art/export-modal.jpg)
+![Export modal](https://raw.githubusercontent.com/asignua/filament-xlsx-export/main/art/export-modal.jpg)
 
 The downloaded workbook - numbers, dates and booleans are real cells, the total is a bold row (a rendering of the file's cells, not a screenshot of Excel):
 
-![The resulting workbook](https://raw.githubusercontent.com/asignua/filament-xlsx-export/v1.0.0/art/workbook.jpg)
+![The resulting workbook](https://raw.githubusercontent.com/asignua/filament-xlsx-export/main/art/workbook.jpg)
 
 ## Requirements
 
@@ -219,7 +219,20 @@ XlsxExportAction::make()->streamed();        // always stream
 XlsxExportAction::make()->streamed(false);   // never; stay in Livewire (bound by row_limit)
 ```
 
-In streaming mode `row_limit` does not apply; `streaming.hard_cap` (default 500 000, `null` = none) does.
+In streaming mode the config `row_limit` does not apply; `streaming.hard_cap` (default 500 000, `null` = none) does. An
+explicit `->rowLimit(n)` on the action holds in both modes: when streaming, the lower of it and `hard_cap` applies.
+
+**Panels with tenancy never stream.** Filament scopes a tenant panel's queries through a global scope that does nothing
+without a current tenant, and the tenant comes from the page's URL and the tenant middleware — neither of which the
+download request has. A streamed file would therefore contain every tenant's rows. So on a panel with `->tenant(...)`
+the action always stays in Livewire mode (bound by `row_limit`, even with `->streamed()`), and the route refuses a token
+issued for such a panel.
+
+**When a link cannot be used** — it expired (a slow click, a retry from the browser history), it was already used, it
+belongs to another user, or the action cannot be found after rehydration — the user is sent back to the page that asked
+for the file with a notification, not to an error page. A link with a forged or altered signature gets a 403. An error
+while rows are already being streamed cannot be turned into a message any more (the response has started): the browser
+gets a truncated file, and the exception is reported as usual.
 
 **How the query is rebuilt outside Livewire, and the trade-off.** A query cannot be serialised soundly: eager loads, casts
 and the table's columns (closures) are code, and replaying SQL plus bindings would lose them. Storing the filtered
@@ -234,15 +247,24 @@ hooks, finds the action by name and asks the table for `getFilteredSortedTableQu
   resolved from the URL, a query-string value) will see the download request instead of the page request. Force
   `->streamed(false)` on such tables.
 - The panel is restored from the id stored with the token; the rehydrated component sees the logged-in user, but not the
-  page's route. Panel multi-tenancy is not carried over.
+  page's route. Panel tenancy is not carried over, which is why tenant panels never stream (see above); neither are
+  other per-request scopes set up by middleware that the download route does not run.
 - The action must be reachable by name from the rehydrated component (table header/toolbar/bulk actions, or the page's
   header actions, groups included). A renamed action is fine; one created on the fly is not.
 - State changes between click and download (a few seconds) are not seen: the snapshot is the state at the click.
 - The token store is the default cache store; use a shared one (Redis, database) behind several servers.
 
-Route options live under `streaming` in the config: `register_route` (set `false` to register your own route to
-`DownloadController`), `path`, `middleware` (default `['web']`; it must start the session and see the panel's guard —
-`signed` is always appended).
+Route options live under `streaming` in the config: `register_route`, `path`, `middleware` (default `['web']`; it must
+start the session and see the panel's guard). The controller checks the URL signature itself. To register your own route
+instead (`register_route => false`), keep its name and its `{token}` parameter, since the action generates the link with
+`URL::temporarySignedRoute(StreamedExports::ROUTE, ...)`:
+
+```php
+Route::middleware(['web'])
+    ->get('exports/{token}', \Asignua\FilamentXlsxExport\Http\DownloadController::class)
+    ->where('token', '[A-Za-z0-9]{48}')
+    ->name(\Asignua\FilamentXlsxExport\Support\StreamedExports::ROUTE); // 'filament-xlsx-export.download'
+```
 
 ## Typed cells for core exporters
 
@@ -287,8 +309,8 @@ queued and still goes through CSV — that is core's design. What it cannot do: 
   (`->timezone()`, else `app.timezone`).
 - **Numbers over 15 digits** (IBANs, card numbers) stay text; Excel keeps 15 significant digits.
 - **Long text** is cut at 32 767 characters, Excel's cell limit.
-- **Sorting a chunked read.** Rows are read in pages; with no explicit sort the plugin orders by the primary key so pages
-  do not overlap.
+- **Sorting a chunked read.** Rows are read in pages; unless the query already sorts by the primary key, the plugin adds
+  it as the last sort column, so rows that tie on a non-unique sort are neither repeated nor skipped across pages.
 - Tables without an Eloquent query (array or API data sources) are not supported.
 
 ## Translations
