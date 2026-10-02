@@ -1,0 +1,97 @@
+{
+  "preset": "laravel",
+  "exclude": [
+    "vendor",
+    "node_modules",
+    "build"
+  ],
+  "rules": {
+    "declare_strict_types": true,
+    "not_operator_with_successor_space": false,
+    "no_trailing_whitespace": true,
+    "single_blank_line_at_eof": true,
+    "no_unused_imports": true,
+    "no_spaces_inside_parenthesis": true,
+    "single_trait_insert_per_statement": true,
+    "no_multiple_statements_per_line": true,
+    "no_blank_lines_after_class_opening": true,
+    "no_extra_blank_lines": {
+      "tokens": [
+        "extra",
+        "throw",
+        "use",
+        "curly_brace_block"
+      ]
+    },
+    "class_attributes_separation": {
+      "elements": {
+        "const": "one",
+        "method": "one",
+        "property": "one",
+        "trait_import": "none",
+        "case": "none"
+      }
+    },
+    "ordered_class_elements": {
+      "order": [
+        "use_trait"
+      ]
+    },
+    "ordered_imports": {
+      "sort_algorithm": "alpha"
+    },
+    "trailing_comma_in_multiline": {
+      "elements": [
+        "arrays",
+        "arguments",
+        "parameters"
+      ]
+    },
+    "phpdoc_order": true,
+    "phpdoc_separation": true,
+    "phpdoc_trim_consecutive_blank_line_separation": true,
+    "array_indentation": true,
+    "method_chaining_indentation": true,
+    "no_empty_phpdoc": true,
+    "phpdoc_align": {
+      "tags": [
+        "param",
+        "throws",
+        "type",
+        "var",
+        "return"
+      ]
+    },
+    "phpdoc_line_span": {
+      "const": "single",
+      "property": "single",
+      "method": "multi"
+    },
+    "phpdoc_types_order": {
+      "null_adjustment": "always_last",
+      "sort_algorithm": "alpha"
+    },
+    "blank_line_before_statement": {
+      "statements": [
+        "return",
+        "throw",
+        "try",
+        "while",
+        "for",
+        "foreach",
+        "do",
+        "if",
+        "switch"
+      ]
+    },
+    "array_syntax": {
+      "syntax": "short"
+    },
+    "single_line_comment_style": {
+      "comment_types": [
+        "hash"
+      ]
+    },
+    "fully_qualified_strict_types": true
+  }
+}

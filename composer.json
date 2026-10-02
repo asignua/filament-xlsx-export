@@ -1,0 +1,63 @@
+{
+    "name": "asignua/filament-xlsx-export",
+    "description": "Immediate, streamed XLSX export of the current Filament table: real numbers, dates and booleans in the cells, a column picker with select-all, export options that change the query, no queue and no temporary CSV.",
+    "keywords": ["filament", "filament-plugin", "laravel", "xlsx", "excel", "export", "openspout"],
+    "homepage": "https://github.com/asignua/filament-xlsx-export",
+    "support": {
+        "issues": "https://github.com/asignua/filament-xlsx-export/issues",
+        "source": "https://github.com/asignua/filament-xlsx-export"
+    },
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Mykhailo Hladchenko",
+            "email": "myhailo@hotmail.com",
+            "role": "Developer"
+        }
+    ],
+    "require": {
+        "php": "^8.3",
+        "filament/filament": "^5.0",
+        "illuminate/contracts": "^12.0|^13.0",
+        "openspout/openspout": "^4.32",
+        "spatie/laravel-package-tools": "^1.16"
+    },
+    "require-dev": {
+        "larastan/larastan": "^3.0",
+        "laravel/pint": "^1.18",
+        "orchestra/testbench": "^10.0|^11.0",
+        "phpunit/phpunit": "^11.5|^12.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Asignua\\FilamentXlsxExport\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Asignua\\FilamentXlsxExport\\Tests\\": "tests/",
+            "Workbench\\App\\": "workbench/app/",
+            "Workbench\\Database\\Factories\\": "workbench/database/factories/"
+        }
+    },
+    "scripts": {
+        "test": "vendor/bin/phpunit",
+        "analyse": "vendor/bin/phpstan analyse --memory-limit=1G",
+        "format": "vendor/bin/pint"
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": false
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Asignua\\FilamentXlsxExport\\XlsxExportServiceProvider"
+            ]
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
