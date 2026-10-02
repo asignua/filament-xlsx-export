@@ -80,4 +80,26 @@ class StreamingTest extends TestCase
 
         $this->assertStringNotContainsString('"orders"."id" asc', $sql);
     }
+
+    public function test_a_grouped_query_gets_no_key_tie_breaker(): void
+    {
+        $this->makeOrder('A', ['status' => 'new']);
+        $this->makeOrder('B', ['status' => 'new']);
+        $this->makeOrder('C', ['status' => 'shipped']);
+
+        $columns = [new ExportColumn('status', 'Status', null, ColumnFormat::make()->value(fn (Order $record): string => (string) $record->getAttribute('total')))];
+        $path = tempnam(sys_get_temp_dir(), 'order-');
+        $this->assertNotFalse($path);
+
+        $query = Order::query()->selectRaw('status, count(*) as total')->groupBy('status')->orderBy('status');
+
+        DB::enableQueryLog();
+        XlsxExporter::make($columns, $query)->writeTo($path);
+        $sql = implode("\n", array_column(DB::getQueryLog(), 'query'));
+        DB::disableQueryLog();
+        @unlink($path);
+
+        $this->assertStringContainsString('group by "status"', $sql);
+        $this->assertStringNotContainsString('"orders"."id"', $sql);
+    }
 }

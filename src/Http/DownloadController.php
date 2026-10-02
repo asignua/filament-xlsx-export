@@ -28,30 +28,39 @@ final class DownloadController
     {
         abort_unless(URL::hasCorrectSignature($request), 403);
 
-        if (!URL::signatureHasNotExpired($request)) {
-            return $this->refuse(StreamedExports::peek($token), 'link_expired');
-        }
-
         $payload = StreamedExports::peek($token);
+        $isOwner = $payload !== null && $this->isOwner($payload);
 
-        if ($payload === null) {
-            return $this->refuse(null, 'link_unusable');
+        if ($isOwner) {
+            $this->restoreLocale($payload);
         }
 
-        $user = Auth::guard($payload['guard'])->id();
+        if (!URL::signatureHasNotExpired($request)) {
+            return $this->refuse($payload, 'link_expired');
+        }
 
         // Another user (or a guest) must not burn the owner's link: refuse before spending.
-        if ($user === null || (string) $user !== (string) $payload['user']) {
+        if ($payload === null || !$isOwner) {
             return $this->refuse($payload, 'link_unusable');
         }
 
+        // A table outside any panel stores no panel id: it gets no panel here either, rather than
+        // the default one (an unrelated panel, or an exception when none is marked default).
+        $panel = null;
+
         if ($payload['panel'] !== null) {
-            Filament::setCurrentPanel($payload['panel']);
+            try {
+                $panel = Filament::getPanel($payload['panel']);
+            } catch (Throwable) {
+                return $this->refuse($payload, 'link_unusable');
+            }
+
+            Filament::setCurrentPanel($panel);
         }
 
         // Defence in depth: the action never issues a link on a tenant panel (see
         // StreamedExports::supportsPanel()); a token stored by an older version might still exist.
-        if (!StreamedExports::supportsPanel(Filament::getCurrentPanel())) {
+        if (!StreamedExports::supportsPanel($panel)) {
             return $this->refuse($payload, 'link_unusable');
         }
 
@@ -59,9 +68,11 @@ final class DownloadController
             return $this->refuse($payload, 'link_unusable');
         }
 
-        // What the panel's own SetUpPanel middleware does: the panel and its plugins register
-        // their global scopes, render hooks and so on in boot().
-        Filament::bootCurrentPanel();
+        if ($panel !== null) {
+            // What the panel's own SetUpPanel middleware does: the panel and its plugins register
+            // their global scopes, render hooks and so on in boot().
+            Filament::bootCurrentPanel();
+        }
 
         try {
             $component = StreamedExports::rehydrate($payload['snapshot']);
@@ -86,6 +97,39 @@ final class DownloadController
 
         /** @var Response */
         return $action->streamExport($component, $query, $payload['data']);
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private function isOwner(array $payload): bool
+    {
+        $guard = $payload['guard'] ?? null;
+
+        try {
+            $user = Auth::guard(is_string($guard) ? $guard : null)->id();
+        } catch (Throwable) {
+            return false;
+        }
+
+        return $user !== null && (string) $user === (string) $payload['user'];
+    }
+
+    /**
+     * The download request does not run the panel's middleware, where a panel usually sets the
+     * user's locale. Rehydrating the component restores the snapshot's locale (Livewire's
+     * SupportLocales hook), but only for the file: the refusal notifications come before that.
+     * Restoring it up front keeps them in the language of the page that asked for the file.
+     *
+     * @param array<string, mixed> $payload
+     */
+    private function restoreLocale(array $payload): void
+    {
+        $locale = $payload['locale'] ?? null;
+
+        if (is_string($locale) && $locale !== '') {
+            app()->setLocale($locale);
+        }
     }
 
     /**

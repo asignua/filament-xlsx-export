@@ -29,7 +29,9 @@ return [
     | action with ->streamed() / ->streamed(false). `hard_cap` is the limit that applies to
     | streamed exports (null = none); `row_limit` then applies only to Livewire mode.
     | `ttl` is how long the link works, in seconds. Middleware must start the session and
-    | authenticate the same guard as the panel.
+    | authenticate the same guard as the panel. The route does NOT run the panel's own
+    | middleware: add here whatever per-request scoping or settings your panel middleware
+    | applies (the locale of the click is restored by the plugin itself).
     |
     */
     'streaming' => [

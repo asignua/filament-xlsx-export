@@ -266,8 +266,11 @@ final class XlsxExporter
 
         // lazy() pages with LIMIT/OFFSET: without a unique last sort key, rows that tie on the
         // sort columns may be repeated or skipped across chunks. Append the primary key unless the
-        // query already orders by it.
-        if (!$this->ordersByKey($query)) {
+        // query already orders by it. A grouped, HAVING or UNION query is left alone: there the key
+        // is not a selectable sort column (Postgres, MySQL ONLY_FULL_GROUP_BY reject it).
+        $base = $query->getQuery();
+
+        if (!$this->ordersByKey($query) && empty($base->groups) && empty($base->havings) && empty($base->unions)) {
             $query->orderBy($query->getModel()->getQualifiedKeyName());
         }
 

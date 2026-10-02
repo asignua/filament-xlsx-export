@@ -246,9 +246,13 @@ hooks, finds the action by name and asks the table for `getFilteredSortedTableQu
   table components. A component whose table depends on request state (route parameters read in `table()`, a tenant
   resolved from the URL, a query-string value) will see the download request instead of the page request. Force
   `->streamed(false)` on such tables.
-- The panel is restored from the id stored with the token; the rehydrated component sees the logged-in user, but not the
-  page's route. Panel tenancy is not carried over, which is why tenant panels never stream (see above); neither are
-  other per-request scopes set up by middleware that the download route does not run.
+- The panel is restored from the id stored with the token and booted (a table outside any panel gets no panel, and its
+  user is checked against the app's default guard); the rehydrated component sees the logged-in user, but not the
+  page's route. Panel tenancy is not carried over, which is why tenant panels never stream (see above).
+- **The download route does not run the panel's middleware** — only `streaming.middleware`. The locale of the click is
+  restored (from the token and from the component's snapshot), so labels match Livewire mode. Everything else a panel's
+  persistent middleware does is not: `canAccessPanel()` is not re-checked within the link's ttl, and scopes or settings
+  that your own panel middleware applies per request are missing. Add such middleware to `streaming.middleware`.
 - The action must be reachable by name from the rehydrated component (table header/toolbar/bulk actions, or the page's
   header actions, groups included). A renamed action is fine; one created on the fly is not.
 - State changes between click and download (a few seconds) are not seen: the snapshot is the state at the click.
@@ -310,7 +314,9 @@ queued and still goes through CSV — that is core's design. What it cannot do: 
 - **Numbers over 15 digits** (IBANs, card numbers) stay text; Excel keeps 15 significant digits.
 - **Long text** is cut at 32 767 characters, Excel's cell limit.
 - **Sorting a chunked read.** Rows are read in pages; unless the query already sorts by the primary key, the plugin adds
-  it as the last sort column, so rows that tie on a non-unique sort are neither repeated nor skipped across pages.
+  it as the last sort column, so rows that tie on a non-unique sort are neither repeated nor skipped across pages. A
+  grouped query (`GROUP BY`, `HAVING`, `UNION`) is left as it is, since the key is not a valid sort column there; give it a
+  unique order yourself if it can span more than one page.
 - Tables without an Eloquent query (array or API data sources) are not supported.
 
 ## Translations

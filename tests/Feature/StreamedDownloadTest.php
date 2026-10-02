@@ -11,6 +11,7 @@ use Asignua\FilamentXlsxExport\Tests\TestCase;
 use Filament\Actions\ActionGroup;
 use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
+use Filament\PanelRegistry;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\TestResponse;
@@ -244,6 +245,53 @@ class StreamedDownloadTest extends TestCase
         Cache::put($key, [...Cache::get($key), 'panel' => 'tenant'], 60);
 
         $this->assertRefusedBackToThePanel($this->get($url));
+    }
+
+    public function test_a_table_outside_any_panel_streams_without_a_default_panel(): void
+    {
+        $this->orders();
+        $this->streamedHeader();
+
+        // A Livewire table on a page outside every panel, in an app with no default() panel.
+        Filament::setCurrentPanel(null);
+        Filament::getPanel('admin')->default(false);
+        app(PanelRegistry::class)->defaultPanel = null;
+
+        try {
+            $url = $this->linkOf(Livewire::test(OrdersTable::class)->callAction(TestAction::make('xlsxExport')->table(), ['columns' => ['name']]));
+
+            $payload = Cache::get('filament-xlsx-export:'.$this->tokenOf($url));
+            $this->assertIsArray($payload);
+            $this->assertNull($payload['panel']);
+            $this->assertSame('web', $payload['guard'], 'Without a panel the guard is the app default.');
+
+            $book = $this->workbookOf($url);
+            $this->assertEqualsCanonicalizing(['Alpha', 'Bravo', 'Charlie'], array_slice($book->column(0), 0, 3));
+            $this->assertNull(Filament::getCurrentPanel(), 'No unrelated panel is made current or booted.');
+        } finally {
+            Filament::getPanel('admin')->default();
+            app(PanelRegistry::class)->defaultPanel = null;
+            Filament::setCurrentPanel('admin');
+        }
+    }
+
+    public function test_the_download_request_uses_the_locale_of_the_click(): void
+    {
+        $this->orders();
+        $this->streamedHeader();
+
+        app()->setLocale('uk');
+        $url = $this->linkOf(Livewire::test(OrdersTable::class)->callAction(TestAction::make('xlsxExport')->table(), ['columns' => ['name']]));
+        $expected = __('filament-xlsx-export::xlsx-export.link_expired', [], 'uk');
+        $this->assertNotSame(__('filament-xlsx-export::xlsx-export.link_expired', [], 'en'), $expected);
+
+        // The download request runs no panel middleware that would set the user's locale, and a
+        // refusal happens before the component (whose snapshot carries the locale) is rehydrated.
+        app()->setLocale('en');
+        // Past the link's ttl (120 s), within the payload's grace period in the cache (+30 s).
+        $this->travel(130)->seconds();
+
+        $this->assertRefusedBackToThePanel($this->get($url), $expected);
     }
 
     public function test_an_explicit_row_limit_also_caps_a_streamed_export(): void

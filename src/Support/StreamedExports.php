@@ -44,7 +44,10 @@ final class StreamedExports
     public static function issue(HasTable $livewire, string $action, bool $bulk, array $data, ?bool $tableAction = null): string
     {
         $token = Str::random(48);
-        $guard = Filament::getAuthGuard();
+        $panel = Filament::getCurrentPanel();
+        // A table outside any panel has no panel guard; Filament::getAuthGuard() would fall back to
+        // the default panel (or throw without one), whose guard may not be the page's.
+        $guard = $panel?->getAuthGuard() ?? Auth::getDefaultDriver();
         $ttl = self::ttl();
 
         Cache::put(self::PREFIX.$token, [
@@ -55,7 +58,8 @@ final class StreamedExports
             'data' => $data,
             'guard' => $guard,
             'user' => Auth::guard($guard)->id(),
-            'panel' => Filament::getCurrentPanel()?->getId(),
+            'panel' => $panel?->getId(),
+            'locale' => app()->getLocale(),
             'back' => self::backUrl(),
         ], $ttl + 30);
 
@@ -114,13 +118,13 @@ final class StreamedExports
     }
 
     /**
-     * @return array{snapshot: array<string, mixed>, action: string, bulk: bool, table?: bool|null, data: array<string, mixed>, guard: string, user: int|string|null, panel: string|null, back?: string|null}|null
+     * @return array{snapshot: array<string, mixed>, action: string, bulk: bool, table?: bool|null, data: array<string, mixed>, guard: string, user: int|string|null, panel: string|null, locale?: string|null, back?: string|null}|null
      */
     public static function peek(string $token): ?array
     {
         $payload = Cache::get(self::PREFIX.$token);
 
-        /** @var array{snapshot: array<string, mixed>, action: string, bulk: bool, table?: bool|null, data: array<string, mixed>, guard: string, user: int|string|null, panel: string|null, back?: string|null}|null */
+        /** @var array{snapshot: array<string, mixed>, action: string, bulk: bool, table?: bool|null, data: array<string, mixed>, guard: string, user: int|string|null, panel: string|null, locale?: string|null, back?: string|null}|null */
         return is_array($payload) ? $payload : null;
     }
 
