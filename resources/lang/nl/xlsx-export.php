@@ -13,4 +13,6 @@ return [
     'no_columns' => 'Kies minstens één kolom.',
     'too_many_rows_title' => 'Te veel rijen om te exporteren',
     'too_many_rows_body' => 'De export heeft :count rijen, de limiet is :limit. Beperk de filters en probeer het opnieuw.',
+    'link_expired' => 'De downloadlink is verlopen. Start de export opnieuw.',
+    'link_unusable' => 'Deze downloadlink kan niet meer worden gebruikt. Start de export opnieuw.',
 ];

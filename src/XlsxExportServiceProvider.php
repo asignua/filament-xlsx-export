@@ -28,7 +28,9 @@ class XlsxExportServiceProvider extends PackageServiceProvider
             return;
         }
 
-        Route::middleware([...(array) config('filament-xlsx-export.streaming.middleware', ['web']), 'signed'])
+        // No `signed` middleware: DownloadController checks the signature itself (a forged link
+        // gets a 403, an expired one a notification back in the panel).
+        Route::middleware((array) config('filament-xlsx-export.streaming.middleware', ['web']))
             ->get((string) config('filament-xlsx-export.streaming.path', 'filament-xlsx-export/download/{token}'), DownloadController::class)
             ->where('token', '[A-Za-z0-9]{48}')
             ->name(StreamedExports::ROUTE);

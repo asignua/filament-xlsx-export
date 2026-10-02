@@ -6,11 +6,13 @@ namespace Workbench\App\Filament\Resources\Orders;
 
 use Asignua\FilamentXlsxExport\Actions\XlsxExportAction;
 use Asignua\FilamentXlsxExport\ColumnFormat;
+use Closure;
 use Filament\Resources\Resource;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 use Workbench\App\Enums\OrderStatus;
 use Workbench\App\Filament\Resources\Orders\Pages\ListOrders;
 use Workbench\App\Models\Order;
@@ -18,6 +20,22 @@ use Workbench\App\Models\Order;
 class OrderResource extends Resource
 {
     protected static ?string $model = Order::class;
+
+    /** When true, a user sees only the orders whose `secret` holds their id (a per-user scope). */
+    public static bool $ownOrdersOnly = false;
+
+    /** Table header actions for a test (none by default; the list page carries the export). */
+    public static ?Closure $tableHeader = null;
+
+    /**
+     * @return Builder<Order>
+     */
+    public static function getEloquentQuery(): Builder
+    {
+        $query = parent::getEloquentQuery();
+
+        return static::$ownOrdersOnly ? $query->where('secret', (string) auth()->id()) : $query;
+    }
 
     public static function table(Table $table): Table
     {
@@ -38,7 +56,8 @@ class OrderResource extends Resource
             ])
             ->filters([
                 SelectFilter::make('status')->options(OrderStatus::class),
-            ]);
+            ])
+            ->headerActions(static::$tableHeader !== null ? (static::$tableHeader)() : []);
     }
 
     public static function exportAction(): XlsxExportAction

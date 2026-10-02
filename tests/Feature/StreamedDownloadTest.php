@@ -8,10 +8,16 @@ use Asignua\FilamentXlsxExport\Actions\XlsxExportAction;
 use Asignua\FilamentXlsxExport\Actions\XlsxExportBulkAction;
 use Asignua\FilamentXlsxExport\Tests\Support\Workbook;
 use Asignua\FilamentXlsxExport\Tests\TestCase;
+use Filament\Actions\ActionGroup;
 use Filament\Actions\Testing\TestAction;
+use Filament\Facades\Filament;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Testing\TestResponse;
 use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
+use Workbench\App\Filament\Resources\Orders\OrderResource;
+use Workbench\App\Filament\Resources\Orders\Pages\ListOrders;
 use Workbench\App\Livewire\OrdersTable;
 use Workbench\App\Models\Order;
 use Workbench\App\Models\User;
@@ -22,6 +28,9 @@ class StreamedDownloadTest extends TestCase
     {
         OrdersTable::$header = null;
         OrdersTable::$bulk = null;
+        ListOrders::$header = null;
+        OrderResource::$tableHeader = null;
+        OrderResource::$ownOrdersOnly = false;
 
         parent::tearDown();
     }
@@ -170,7 +179,7 @@ class StreamedDownloadTest extends TestCase
 
         $this->travel(5)->minutes();
 
-        $this->get($url)->assertForbidden();
+        $this->assertRefusedBackToThePanel($this->get($url), __('filament-xlsx-export::xlsx-export.link_expired'));
     }
 
     public function test_another_user_cannot_use_the_link_and_does_not_burn_it(): void
@@ -181,10 +190,10 @@ class StreamedDownloadTest extends TestCase
         $owner = auth()->user();
         $url = $this->linkOf(Livewire::test(OrdersTable::class)->callAction(TestAction::make('xlsxExport')->table(), ['columns' => ['name']]));
 
-        $this->actingAs(User::factory()->create())->get($url)->assertForbidden();
+        $this->assertRefusedBackToThePanel($this->actingAs(User::factory()->create())->get($url));
 
         auth()->logout();
-        $this->get($url)->assertForbidden();
+        $this->assertRefusedBackToThePanel($this->get($url));
 
         $this->actingAs($owner)->get($url)->assertOk();
     }
@@ -197,7 +206,127 @@ class StreamedDownloadTest extends TestCase
         $url = $this->linkOf(Livewire::test(OrdersTable::class)->callAction(TestAction::make('xlsxExport')->table(), ['columns' => ['name']]));
 
         $this->get($url)->assertOk()->streamedContent();
-        $this->get($url)->assertStatus(410);
+        $this->assertRefusedBackToThePanel($this->get($url));
+    }
+
+    public function test_a_link_already_being_spent_by_a_concurrent_request_is_refused(): void
+    {
+        $this->orders();
+        $this->streamedHeader();
+
+        $url = $this->linkOf(Livewire::test(OrdersTable::class)->callAction(TestAction::make('xlsxExport')->table(), ['columns' => ['name']]));
+
+        // A simultaneous request has passed the atomic check-and-mark but not yet removed the payload.
+        Cache::add('filament-xlsx-export:'.$this->tokenOf($url).':spent', true, 60);
+
+        $this->assertRefusedBackToThePanel($this->get($url));
+    }
+
+    public function test_a_tenant_panel_never_streams(): void
+    {
+        $this->orders();
+        $this->streamedHeader();
+        Filament::setCurrentPanel('tenant');
+
+        $component = Livewire::test(OrdersTable::class)->callAction(TestAction::make('xlsxExport')->table(), ['columns' => ['name']]);
+
+        $this->assertArrayNotHasKey('redirect', $component->effects);
+        $this->assertArrayHasKey('download', $component->effects);
+    }
+
+    public function test_the_route_refuses_a_token_issued_on_a_tenant_panel(): void
+    {
+        $this->orders();
+        $this->streamedHeader();
+
+        $url = $this->linkOf(Livewire::test(OrdersTable::class)->callAction(TestAction::make('xlsxExport')->table(), ['columns' => ['name']]));
+        $key = 'filament-xlsx-export:'.$this->tokenOf($url);
+        Cache::put($key, [...Cache::get($key), 'panel' => 'tenant'], 60);
+
+        $this->assertRefusedBackToThePanel($this->get($url));
+    }
+
+    public function test_an_explicit_row_limit_also_caps_a_streamed_export(): void
+    {
+        $this->orders();
+        config(['filament-xlsx-export.streaming.above_rows' => 1]);
+        OrdersTable::$header = static fn () => XlsxExportAction::make()->rowLimit(2);
+
+        $component = Livewire::test(OrdersTable::class)
+            ->callAction(TestAction::make('xlsxExport')->table(), ['columns' => ['name']])
+            ->assertNotified(__('filament-xlsx-export::xlsx-export.too_many_rows_title'));
+
+        $this->assertArrayNotHasKey('redirect', $component->effects);
+
+        OrdersTable::$header = static fn () => XlsxExportAction::make()->rowLimit(0);
+        $unbounded = Livewire::test(OrdersTable::class)->callAction(TestAction::make('xlsxExport')->table(), ['columns' => ['name']]);
+        $this->assertIsString($unbounded->effects['redirect'] ?? null, 'rowLimit(0) leaves only the hard cap');
+    }
+
+    public function test_a_resource_list_page_header_action_streams(): void
+    {
+        $this->orders();
+        ListOrders::$header = static fn (): array => [XlsxExportAction::make()->streamed()];
+
+        $url = $this->linkOf(Livewire::test(ListOrders::class)->callAction('xlsxExport', ['columns' => ['name']]));
+
+        $this->assertEqualsCanonicalizing(['Alpha', 'Bravo', 'Charlie'], $this->workbookOf($url)->column(0));
+    }
+
+    public function test_a_grouped_page_header_action_streams(): void
+    {
+        $this->orders();
+        ListOrders::$header = static fn (): array => [ActionGroup::make([XlsxExportAction::make()->streamed()])];
+
+        $url = $this->linkOf(Livewire::test(ListOrders::class)->callAction('xlsxExport', ['columns' => ['name']]));
+
+        $this->assertEqualsCanonicalizing(['Alpha', 'Bravo', 'Charlie'], $this->workbookOf($url)->column(0));
+    }
+
+    public function test_a_page_action_and_a_table_action_with_the_same_name_are_told_apart(): void
+    {
+        $this->orders();
+        ListOrders::$header = static fn (): array => [XlsxExportAction::make()->streamed()->title('From the page')];
+        OrderResource::$tableHeader = static fn (): array => [XlsxExportAction::make()->streamed()->title('From the table')];
+
+        $url = $this->linkOf(Livewire::test(ListOrders::class)->callAction('xlsxExport', ['columns' => ['name']]));
+
+        $this->assertSame('From the page', $this->workbookOf($url)->cell(1, 0)['value']);
+    }
+
+    public function test_the_resource_query_scope_holds_in_the_streamed_file(): void
+    {
+        $owner = auth()->user();
+        $other = User::factory()->create();
+        $this->makeOrder('Mine', ['secret' => (string) $owner?->getAuthIdentifier()]);
+        $this->makeOrder('Theirs', ['secret' => (string) $other->getKey()]);
+        OrderResource::$ownOrdersOnly = true;
+        ListOrders::$header = static fn (): array => [XlsxExportAction::make()->streamed()];
+
+        $url = $this->linkOf(Livewire::test(ListOrders::class)->callAction('xlsxExport', ['columns' => ['name']]));
+
+        $this->assertSame(['Mine'], $this->workbookOf($url)->column(0));
+    }
+
+    private function tokenOf(string $url): string
+    {
+        $path = (string) parse_url($url, PHP_URL_PATH);
+
+        return basename($path);
+    }
+
+    /**
+     * @param TestResponse<\Symfony\Component\HttpFoundation\Response> $response
+     */
+    private function assertRefusedBackToThePanel(TestResponse $response, ?string $title = null): void
+    {
+        $response->assertRedirect();
+        $notifications = session('filament.notifications');
+        $this->assertIsArray($notifications);
+        $this->assertSame(
+            $title ?? __('filament-xlsx-export::xlsx-export.link_unusable'),
+            $notifications[array_key_last($notifications)]['title'] ?? null,
+        );
     }
 
     public function test_twenty_thousand_rows_stream_with_flat_memory(): void

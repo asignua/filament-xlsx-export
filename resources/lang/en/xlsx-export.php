@@ -13,4 +13,6 @@ return [
     'no_columns' => 'Pick at least one column.',
     'too_many_rows_title' => 'Too many rows to export',
     'too_many_rows_body' => 'The export has :count rows, the limit is :limit. Narrow the filters and try again.',
+    'link_expired' => 'The download link has expired. Start the export again.',
+    'link_unusable' => 'This download link can no longer be used. Start the export again.',
 ];

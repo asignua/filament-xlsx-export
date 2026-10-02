@@ -26,6 +26,7 @@ use RyanChandler\BladeCaptureDirective\BladeCaptureDirectiveServiceProvider;
 use Workbench\App\Models\Order;
 use Workbench\App\Models\User;
 use Workbench\App\Providers\AdminPanelProvider;
+use Workbench\App\Providers\TenantPanelProvider;
 
 abstract class TestCase extends Orchestra
 {
@@ -57,6 +58,7 @@ abstract class TestCase extends Orchestra
             WidgetsServiceProvider::class,
             XlsxExportServiceProvider::class,
             AdminPanelProvider::class,
+            TenantPanelProvider::class,
         ];
     }
 

@@ -44,6 +44,13 @@ use OpenSpout\Writer\XLSX\Writer;
  */
 trait ExportsTypedXlsx
 {
+    private ?CellFactory $xlsxCellFactory = null;
+
+    private ?CellBuilder $xlsxCellBuilder = null;
+
+    /** @var array<int|string, ExportColumn>|null resolved once per exporter, by position */
+    private ?array $xlsxExportColumns = null;
+
     /**
      * Keyed by the export column name.
      *
@@ -59,15 +66,25 @@ trait ExportsTypedXlsx
      */
     public function makeXlsxRow(array $values, ?Style $style = null): Row
     {
-        $factory = new CellFactory;
-        $builder = new CellBuilder;
-        $formats = $this->xlsxColumnFormats();
-        $names = array_map('strval', array_keys($this->columnMap));
+        // One factory, one builder (its per-format Style cache) and one column list for the whole
+        // file, not one per row.
+        $factory = $this->xlsxCellFactory ??= new CellFactory;
+        $builder = $this->xlsxCellBuilder ??= new CellBuilder;
+
+        if ($this->xlsxExportColumns === null) {
+            $formats = $this->xlsxColumnFormats();
+            $this->xlsxExportColumns = [];
+
+            foreach (array_keys($this->columnMap) as $index => $name) {
+                $name = (string) $name;
+                $this->xlsxExportColumns[$index] = new ExportColumn($name, $name, null, $formats[$name] ?? ColumnFormat::make());
+            }
+        }
+
         $cells = [];
 
         foreach (array_values($values) as $index => $value) {
-            $name = (string) ($names[$index] ?? $index);
-            $export = new ExportColumn($name, $name, null, $formats[$name] ?? ColumnFormat::make());
+            $export = $this->xlsxExportColumns[$index] ?? new ExportColumn((string) $index, (string) $index, null, ColumnFormat::make());
             $cells[] = $builder->make($factory->fromText($export, $value === null ? null : (string) $value));
         }
 

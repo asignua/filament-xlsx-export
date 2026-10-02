@@ -13,4 +13,6 @@ return [
     'no_columns' => 'Wybierz co najmniej jedną kolumnę.',
     'too_many_rows_title' => 'Za dużo wierszy do eksportu',
     'too_many_rows_body' => 'Eksport ma :count wierszy, limit to :limit. Zawęź filtry i spróbuj ponownie.',
+    'link_expired' => 'Link do pobrania wygasł. Uruchom eksport ponownie.',
+    'link_unusable' => 'Tego linku do pobrania nie można już użyć. Uruchom eksport ponownie.',
 ];

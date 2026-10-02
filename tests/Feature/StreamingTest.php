@@ -52,4 +52,32 @@ class StreamingTest extends TestCase
         // 6000 hydrated models with a 200-byte note would be well over this if they were held.
         $this->assertLessThan(24 * 1024 * 1024, $growth);
     }
+
+    public function test_the_primary_key_breaks_ties_of_a_non_unique_sort(): void
+    {
+        $this->makeOrder('A', ['status' => 'new']);
+        $this->makeOrder('B', ['status' => 'new']);
+
+        $columns = [new ExportColumn('name', 'Name', null, ColumnFormat::make()->value(fn (Order $record): string => $record->name))];
+        $path = tempnam(sys_get_temp_dir(), 'order-');
+        $this->assertNotFalse($path);
+
+        DB::enableQueryLog();
+        XlsxExporter::make($columns, Order::query()->orderBy('status'))->chunkSize(1)->writeTo($path);
+        $sql = implode("\n", array_column(DB::getQueryLog(), 'query'));
+        DB::disableQueryLog();
+        @unlink($path);
+
+        $this->assertMatchesRegularExpression('/order by "status" asc, "orders"\."id" asc/', $sql);
+
+        // A query already ordered by the key gets no second copy of it.
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        XlsxExporter::make($columns, Order::query()->orderBy('status')->orderBy('id'))->chunkSize(1)->writeTo($path);
+        $sql = implode("\n", array_column(DB::getQueryLog(), 'query'));
+        DB::disableQueryLog();
+        @unlink($path);
+
+        $this->assertStringNotContainsString('"orders"."id" asc', $sql);
+    }
 }

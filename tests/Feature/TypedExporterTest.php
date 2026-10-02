@@ -45,6 +45,17 @@ class TypedExporterTest extends TestCase
         };
     }
 
+    public function test_rows_share_one_style_per_number_format(): void
+    {
+        $exporter = $this->exporter();
+
+        $first = $exporter->makeXlsxRow(['7', '1234.5', '2026-03-01 13:30:00', '1', '00123', 'x']);
+        $second = $exporter->makeXlsxRow(['8', '99.5', '2026-03-02 10:00:00', '0', '00456', 'y']);
+
+        $this->assertSame($first->getCellAtIndex(1)?->getStyle(), $second->getCellAtIndex(1)?->getStyle());
+        $this->assertSame($first->getCellAtIndex(2)?->getStyle(), $second->getCellAtIndex(2)?->getStyle());
+    }
+
     public function test_csv_strings_become_typed_cells_in_the_workbook_core_writes(): void
     {
         $exporter = $this->exporter();

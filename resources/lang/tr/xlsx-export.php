@@ -13,4 +13,6 @@ return [
     'no_columns' => 'En az bir sütun seçin.',
     'too_many_rows_title' => 'Dışa aktarılacak satır çok fazla',
     'too_many_rows_body' => 'Dışa aktarma :count satır içeriyor, sınır :limit. Filtreleri daraltıp tekrar deneyin.',
+    'link_expired' => 'İndirme bağlantısının süresi doldu. Dışa aktarmayı yeniden başlatın.',
+    'link_unusable' => 'Bu indirme bağlantısı artık kullanılamaz. Dışa aktarmayı yeniden başlatın.',
 ];

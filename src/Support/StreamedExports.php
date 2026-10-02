@@ -6,6 +6,7 @@ namespace Asignua\FilamentXlsxExport\Support;
 
 use Filament\Actions\ActionGroup;
 use Filament\Facades\Filament;
+use Filament\Panel;
 use Filament\Tables\Contracts\HasTable;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
@@ -36,25 +37,62 @@ final class StreamedExports
     private const string PREFIX = 'filament-xlsx-export:';
 
     /**
-     * @param array<string, mixed> $data the export modal's values
+     * @param array<string, mixed> $data        the export modal's values
+     * @param bool|null            $tableAction whether the action belongs to the table (true) or
+     *                                          to the page's header (false); null searches both
      */
-    public static function issue(HasTable $livewire, string $action, bool $bulk, array $data): string
+    public static function issue(HasTable $livewire, string $action, bool $bulk, array $data, ?bool $tableAction = null): string
     {
         $token = Str::random(48);
         $guard = Filament::getAuthGuard();
-        $ttl = max(10, (int) config('filament-xlsx-export.streaming.ttl', 120));
+        $ttl = self::ttl();
 
         Cache::put(self::PREFIX.$token, [
             'snapshot' => self::snapshot($livewire),
             'action' => $action,
             'bulk' => $bulk,
+            'table' => $bulk ? true : $tableAction,
             'data' => $data,
             'guard' => $guard,
             'user' => Auth::guard($guard)->id(),
             'panel' => Filament::getCurrentPanel()?->getId(),
+            'back' => self::backUrl(),
         ], $ttl + 30);
 
         return URL::temporarySignedRoute(self::ROUTE, now()->addSeconds($ttl), ['token' => $token]);
+    }
+
+    /**
+     * Whether a panel can stream at all. A panel with tenancy cannot: its tenant comes from the
+     * page's URL and the tenant middleware, neither of which the download request has, and
+     * Filament's tenant scope does nothing without a current tenant — the file would hold every
+     * tenant's rows. Such panels stay in Livewire mode.
+     */
+    public static function supportsPanel(?Panel $panel): bool
+    {
+        return !($panel?->hasTenancy() ?? false);
+    }
+
+    /**
+     * Where the user is sent back to when a link cannot be used: the page that asked for the
+     * file (from the Livewire request's own same-origin Referer), else null.
+     */
+    private static function backUrl(): ?string
+    {
+        $referer = request()->headers->get('referer');
+
+        if (!is_string($referer) || $referer === '') {
+            return null;
+        }
+
+        $host = parse_url($referer, PHP_URL_HOST);
+
+        return $host === request()->getHost() ? $referer : null;
+    }
+
+    private static function ttl(): int
+    {
+        return max(10, (int) config('filament-xlsx-export.streaming.ttl', 120));
     }
 
     /**
@@ -76,21 +114,30 @@ final class StreamedExports
     }
 
     /**
-     * @return array{snapshot: array<string, mixed>, action: string, bulk: bool, data: array<string, mixed>, guard: string, user: int|string|null, panel: string|null}|null
+     * @return array{snapshot: array<string, mixed>, action: string, bulk: bool, table?: bool|null, data: array<string, mixed>, guard: string, user: int|string|null, panel: string|null, back?: string|null}|null
      */
     public static function peek(string $token): ?array
     {
         $payload = Cache::get(self::PREFIX.$token);
 
-        /** @var array{snapshot: array<string, mixed>, action: string, bulk: bool, data: array<string, mixed>, guard: string, user: int|string|null, panel: string|null}|null */
+        /** @var array{snapshot: array<string, mixed>, action: string, bulk: bool, table?: bool|null, data: array<string, mixed>, guard: string, user: int|string|null, panel: string|null, back?: string|null}|null */
         return is_array($payload) ? $payload : null;
     }
 
     /**
      * Spends the token. False when somebody else got there first.
+     *
+     * `Cache::pull()` alone is a get followed by a forget, so two simultaneous requests (a double
+     * click, a download manager retrying) could both see the payload. `Cache::add()` is atomic on
+     * every store that supports it (Redis, database, Memcached, array, file): only the first request
+     * plants the marker.
      */
     public static function spend(string $token): bool
     {
+        if (!Cache::add(self::PREFIX.$token.':spent', true, self::ttl() + 30)) {
+            return false;
+        }
+
         return Cache::pull(self::PREFIX.$token) !== null;
     }
 
@@ -112,15 +159,24 @@ final class StreamedExports
         return $component;
     }
 
-    public static function findAction(HasTable $livewire, string $name, bool $bulk): ?object
+    /**
+     * @param bool|null $tableAction true: only the table's actions; false: only the page's header
+     *                               actions (a page action and a table action may share a name);
+     *                               null: both, the table's first
+     */
+    public static function findAction(HasTable $livewire, string $name, bool $bulk, ?bool $tableAction = null): ?object
     {
         $table = $livewire->getTable();
-        $candidates = $bulk ? $table->getFlatBulkActions() : $table->getFlatActions();
+        $candidates = [];
 
-        if (!$bulk) {
-            $candidates = [...$candidates, ...self::flatten($table->getHeaderActions())];
+        if ($bulk) {
+            $candidates = $table->getFlatBulkActions();
+        } else {
+            if ($tableAction !== false) {
+                $candidates = [...$table->getFlatActions(), ...self::flatten($table->getHeaderActions())];
+            }
 
-            if (method_exists($livewire, 'getCachedHeaderActions')) {
+            if ($tableAction !== true && method_exists($livewire, 'getCachedHeaderActions')) {
                 $candidates = [...$candidates, ...self::flatten($livewire->getCachedHeaderActions())];
             }
         }

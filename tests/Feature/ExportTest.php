@@ -353,6 +353,35 @@ class ExportTest extends TestCase
         $this->assertSame('inlineStr', $book->cell(5, 0)['type']);
     }
 
+    public function test_a_title_caption_or_footer_that_looks_like_a_formula_stays_text(): void
+    {
+        $this->makeOrder('Alpha');
+        $evil = '=HYPERLINK("http://evil.test","x")';
+
+        try {
+            // The caption and the footer typically echo the table's search or the modal's values.
+            OrdersTable::$header = static fn () => XlsxExportAction::make()
+                ->title($evil)
+                ->caption(static fn ($livewire): string => (string) $livewire->getTableSearch())
+                ->footer(static fn ($livewire): array => ['Search: x', (string) $livewire->getTableSearch()]);
+
+            $book = $this->downloadedWorkbook(
+                Livewire::test(OrdersTable::class)
+                    ->set('tableSearch', $evil)
+                    ->callAction(TestAction::make('xlsxExport')->table(), ['columns' => ['name']]),
+            );
+        } finally {
+            OrdersTable::$header = null;
+        }
+
+        $last = (int) array_key_last($book->rows);
+
+        foreach ([1 => 'title', 2 => 'caption', $last => 'footer'] as $row => $what) {
+            $this->assertSame($evil, $book->cell($row, 0)['value'], $what);
+            $this->assertSame('inlineStr', $book->cell($row, 0)['type'], $what.' became a formula');
+        }
+    }
+
     public function test_the_list_page_of_a_resource_carries_the_header_action(): void
     {
         $this->seedOrders();

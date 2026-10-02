@@ -11,6 +11,7 @@ use Asignua\FilamentXlsxExport\Support\StreamedExports;
 use Asignua\FilamentXlsxExport\XlsxExporter;
 use Closure;
 use Filament\Actions\BulkAction;
+use Filament\Facades\Filament;
 use Filament\Forms\Components\CheckboxList;
 use Filament\Notifications\Notification;
 use Filament\Support\Icons\Heroicon;
@@ -127,7 +128,9 @@ trait ExportsTableToXlsx
     }
 
     /**
-     * Most rows one file may have (default: config `row_limit`); `0` disables the check.
+     * Most rows one file may have. In Livewire mode it replaces config `row_limit` (`0` disables
+     * the check); in streaming mode the lower of it and `streaming.hard_cap` applies, so an
+     * explicit cap holds whichever mode the export ends up in. Default: the config values.
      */
     public function rowLimit(int|Closure|null $limit): static
     {
@@ -190,7 +193,8 @@ trait ExportsTableToXlsx
     /**
      * Force the download mode: `true` always goes through the signed streaming route (no
      * Livewire buffering), `false` always stays in Livewire (bound by `row_limit`). Default
-     * `null`: streaming above config `stream_above_rows`.
+     * `null`: streaming above config `streaming.above_rows`. A panel with tenancy never streams
+     * (the download request cannot carry the tenant); there `true` falls back to Livewire mode.
      */
     public function streamed(?bool $condition = true): static
     {
@@ -252,14 +256,22 @@ trait ExportsTableToXlsx
         }
 
         $count = $query->clone()->reorder()->count();
-        $streaming = (bool) config('filament-xlsx-export.streaming.enabled', true);
+        $streaming = (bool) config('filament-xlsx-export.streaming.enabled', true)
+            && StreamedExports::supportsPanel(Filament::getCurrentPanel());
         $stream = $streaming && ($this->xlsxStreamed ?? $count > (int) config('filament-xlsx-export.streaming.above_rows', 5000));
+        $explicit = $this->xlsxRowLimit === null
+            ? null
+            : $this->evaluate($this->xlsxRowLimit, ['livewire' => $livewire, 'data' => $data]);
 
-        $limit = $stream
-            ? config('filament-xlsx-export.streaming.hard_cap')
-            : ($this->xlsxRowLimit === null
-                ? config('filament-xlsx-export.row_limit')
-                : $this->evaluate($this->xlsxRowLimit, ['livewire' => $livewire, 'data' => $data]));
+        if ($stream) {
+            $caps = array_filter(
+                [$explicit, config('filament-xlsx-export.streaming.hard_cap')],
+                static fn (mixed $cap): bool => is_int($cap) && $cap > 0,
+            );
+            $limit = $caps === [] ? null : min($caps);
+        } else {
+            $limit = $explicit ?? config('filament-xlsx-export.row_limit');
+        }
 
         if (is_int($limit) && $limit > 0 && $count > $limit) {
             Notification::make()
@@ -276,7 +288,7 @@ trait ExportsTableToXlsx
 
         if ($stream) {
             /** @var Component&HasTable $livewire every Filament table host is a Livewire component */
-            $livewire->redirect(StreamedExports::issue($livewire, (string) $this->getName(), $this->isBulkExport(), $data));
+            $livewire->redirect(StreamedExports::issue($livewire, (string) $this->getName(), $this->isBulkExport(), $data, $this->belongsToXlsxTable()));
 
             return null;
         }
@@ -303,6 +315,15 @@ trait ExportsTableToXlsx
     public function isBulkExport(): bool
     {
         return $this instanceof BulkAction;
+    }
+
+    /**
+     * Whether the action sits on the table (header/toolbar) rather than in the page's header, so
+     * the download route looks it up in the same place when both have an action of this name.
+     */
+    protected function belongsToXlsxTable(): bool
+    {
+        return $this->getTable() !== null;
     }
 
     /**

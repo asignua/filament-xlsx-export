@@ -203,11 +203,15 @@ final class XlsxExporter
         }
 
         if ($this->title !== null) {
-            $writer->addRow(Row::fromValues([$this->title], (new Style)->setFontBold()->setFontSize(14)));
+            // Explicit StringCells (as for the data): Row::fromValues() would turn a title, caption
+            // or footer starting with "=" — often built from the table's search or the modal's
+            // values — into a live formula.
+            $titleStyle = (new Style)->setFontBold()->setFontSize(14);
+            $writer->addRow(new Row([new StringCell($this->title, $titleStyle)], $titleStyle));
         }
 
         if ($this->caption !== null) {
-            $writer->addRow(Row::fromValues([$this->caption]));
+            $writer->addRow(new Row([new StringCell($this->caption, null)]));
         }
 
         if ($preamble > 0) {
@@ -242,7 +246,7 @@ final class XlsxExporter
             $writer->addRow(new Row([]));
 
             foreach ($this->footer as $line) {
-                $writer->addRow(Row::fromValues([$line]));
+                $writer->addRow(new Row([new StringCell($line, null)]));
             }
         }
 
@@ -260,12 +264,34 @@ final class XlsxExporter
     {
         $query = clone $this->query;
 
-        if ($query->getQuery()->orders === null || $query->getQuery()->orders === []) {
+        // lazy() pages with LIMIT/OFFSET: without a unique last sort key, rows that tie on the
+        // sort columns may be repeated or skipped across chunks. Append the primary key unless the
+        // query already orders by it.
+        if (!$this->ordersByKey($query)) {
             $query->orderBy($query->getModel()->getQualifiedKeyName());
         }
 
         /** @var iterable<Model> */
         return $query->lazy($this->chunkSize ?? max(1, (int) config('filament-xlsx-export.chunk_size', 500)));
+    }
+
+    /**
+     * @param Builder<Model> $query
+     */
+    private function ordersByKey(Builder $query): bool
+    {
+        $model = $query->getModel();
+        $keys = [$model->getKeyName(), $model->getQualifiedKeyName()];
+
+        foreach ($query->getQuery()->orders ?? [] as $order) {
+            $column = $order['column'] ?? null;
+
+            if (is_string($column) && in_array($column, $keys, true)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function headerRow(): Row
