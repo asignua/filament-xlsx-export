@@ -255,34 +255,12 @@ trait ExportsTableToXlsx
             return null;
         }
 
-        $count = $query->clone()->reorder()->count();
+        $count = $this->countXlsxRows($query);
         $streaming = (bool) config('filament-xlsx-export.streaming.enabled', true)
             && StreamedExports::supportsPanel(Filament::getCurrentPanel());
         $stream = $streaming && ($this->xlsxStreamed ?? $count > (int) config('filament-xlsx-export.streaming.above_rows', 5000));
-        $explicit = $this->xlsxRowLimit === null
-            ? null
-            : $this->evaluate($this->xlsxRowLimit, ['livewire' => $livewire, 'data' => $data]);
 
-        if ($stream) {
-            $caps = array_filter(
-                [$explicit, config('filament-xlsx-export.streaming.hard_cap')],
-                static fn (mixed $cap): bool => is_int($cap) && $cap > 0,
-            );
-            $limit = $caps === [] ? null : min($caps);
-        } else {
-            $limit = $explicit ?? config('filament-xlsx-export.row_limit');
-        }
-
-        if (is_int($limit) && $limit > 0 && $count > $limit) {
-            Notification::make()
-                ->title(__('filament-xlsx-export::xlsx-export.too_many_rows_title'))
-                ->body(__('filament-xlsx-export::xlsx-export.too_many_rows_body', [
-                    'count' => number_format($count),
-                    'limit' => number_format($limit),
-                ]))
-                ->warning()
-                ->send();
-
+        if ($this->exceedsXlsxRowLimit($livewire, $data, $count, $stream)) {
             return null;
         }
 
@@ -303,13 +281,69 @@ trait ExportsTableToXlsx
      * @param Builder<Model>       $query
      * @param array<string, mixed> $data
      */
-    public function streamExport(HasTable $livewire, Builder $query, array $data): StreamedResponse
+    public function streamExport(HasTable $livewire, Builder $query, array $data): ?StreamedResponse
     {
         $query = $this->scopedQuery($livewire, $query, $data);
         $columns = $this->pickedColumns($livewire, $data);
-        $count = $query->clone()->reorder()->count();
+        $count = $this->countXlsxRows($query);
+
+        // Rows may have been added between the click and the download (up to the link's ttl), and
+        // the click checked the count it saw then: the caps hold for the file actually written.
+        if ($this->exceedsXlsxRowLimit($livewire, $data, $count, true)) {
+            return null;
+        }
 
         return $this->makeExporter($livewire, $query, $columns, $data, $count)->download($this->resolveFileName($livewire, $data, $count));
+    }
+
+    /**
+     * The number of rows the file will have. A plain `count()` on a grouped, HAVING or UNION query
+     * returns the size of its first group (one aggregate row per group); the pagination count
+     * wraps such a query in a subquery and counts its rows.
+     *
+     * @param Builder<Model> $query
+     */
+    protected function countXlsxRows(Builder $query): int
+    {
+        return $query->clone()->reorder()->toBase()->getCountForPagination();
+    }
+
+    /**
+     * Livewire mode: `rowLimit()`, else config `row_limit`. Streaming: the lower of `rowLimit()`
+     * and `streaming.hard_cap`. Sends the refusal notification when the count is over it.
+     *
+     * @param array<string, mixed> $data
+     */
+    protected function exceedsXlsxRowLimit(HasTable $livewire, array $data, int $count, bool $stream): bool
+    {
+        $explicit = $this->xlsxRowLimit === null
+            ? null
+            : $this->evaluate($this->xlsxRowLimit, ['livewire' => $livewire, 'data' => $data]);
+
+        if ($stream) {
+            $caps = array_filter(
+                [$explicit, config('filament-xlsx-export.streaming.hard_cap')],
+                static fn (mixed $cap): bool => is_int($cap) && $cap > 0,
+            );
+            $limit = $caps === [] ? null : min($caps);
+        } else {
+            $limit = $explicit ?? config('filament-xlsx-export.row_limit');
+        }
+
+        if (!is_int($limit) || $limit <= 0 || $count <= $limit) {
+            return false;
+        }
+
+        Notification::make()
+            ->title(__('filament-xlsx-export::xlsx-export.too_many_rows_title'))
+            ->body(__('filament-xlsx-export::xlsx-export.too_many_rows_body', [
+                'count' => number_format($count),
+                'limit' => number_format($limit),
+            ]))
+            ->warning()
+            ->send();
+
+        return true;
     }
 
     public function isBulkExport(): bool

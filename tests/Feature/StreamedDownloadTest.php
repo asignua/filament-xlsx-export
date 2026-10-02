@@ -12,6 +12,7 @@ use Filament\Actions\ActionGroup;
 use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
 use Filament\PanelRegistry;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\TestResponse;
@@ -354,6 +355,55 @@ class StreamedDownloadTest extends TestCase
         $url = $this->linkOf(Livewire::test(ListOrders::class)->callAction('xlsxExport', ['columns' => ['name']]));
 
         $this->assertSame(['Mine'], $this->workbookOf($url)->column(0));
+    }
+
+    public function test_a_grouped_query_counts_its_groups_for_the_limit_the_threshold_and_row_count(): void
+    {
+        $this->orders();
+        $this->makeOrder('Delta', ['status' => 'new']);
+        // Four orders in two groups: a plain count() would report the first group's size (3).
+        $grouped = static fn (): XlsxExportAction => XlsxExportAction::make()
+            ->queryUsing(fn (Builder $query): Builder => $query->selectRaw('min(id) as id, status, count(*) as total')->groupBy('status'))
+            ->caption(fn (int $rowCount): string => 'Rows: '.$rowCount);
+
+        config(['filament-xlsx-export.streaming.above_rows' => 2]);
+        OrdersTable::$header = static fn (): XlsxExportAction => $grouped()->rowLimit(2);
+        $component = Livewire::test(OrdersTable::class)->callAction(TestAction::make('xlsxExport')->table(), ['columns' => ['status']]);
+
+        $this->assertArrayNotHasKey('redirect', $component->effects, 'Two groups are under the streaming threshold of 2.');
+        $book = $this->downloadedWorkbook($component);
+        $this->assertSame('Rows: 2', $book->cell(1, 0)['value']);
+        $this->assertCount(2, $book->column(0, 3));
+
+        OrdersTable::$header = static fn (): XlsxExportAction => $grouped()->rowLimit(1);
+        Livewire::test(OrdersTable::class)
+            ->callAction(TestAction::make('xlsxExport')->table(), ['columns' => ['status']])
+            ->assertNotified(__('filament-xlsx-export::xlsx-export.too_many_rows_title'));
+    }
+
+    public function test_the_row_cap_is_checked_again_when_the_link_is_used(): void
+    {
+        $this->orders();
+        OrdersTable::$header = static fn (): XlsxExportAction => XlsxExportAction::make()->streamed()->rowLimit(3);
+
+        $url = $this->linkOf(Livewire::test(OrdersTable::class)->callAction(TestAction::make('xlsxExport')->table(), ['columns' => ['name']]));
+
+        // A row added between the click and the download.
+        $this->makeOrder('Delta');
+
+        $this->assertRefusedBackToThePanel($this->get($url), __('filament-xlsx-export::xlsx-export.too_many_rows_title'));
+    }
+
+    public function test_the_hard_cap_is_checked_again_when_the_link_is_used(): void
+    {
+        $this->orders();
+        $this->streamedHeader();
+        config(['filament-xlsx-export.streaming.hard_cap' => 3]);
+
+        $url = $this->linkOf(Livewire::test(OrdersTable::class)->callAction(TestAction::make('xlsxExport')->table(), ['columns' => ['name']]));
+        $this->makeOrder('Delta');
+
+        $this->assertRefusedBackToThePanel($this->get($url), __('filament-xlsx-export::xlsx-export.too_many_rows_title'));
     }
 
     private function tokenOf(string $url): string

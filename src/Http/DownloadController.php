@@ -95,8 +95,11 @@ final class DownloadController
             return $this->refuse($payload, 'link_unusable');
         }
 
-        /** @var Response */
-        return $action->streamExport($component, $query, $payload['data']);
+        /** @var Response|null $response */
+        $response = $action->streamExport($component, $query, $payload['data']);
+
+        // null: over the row cap at download time; the action has flashed why.
+        return $response ?? redirect()->to($this->backUrl($payload));
     }
 
     /**

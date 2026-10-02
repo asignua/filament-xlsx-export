@@ -221,6 +221,9 @@ XlsxExportAction::make()->streamed(false);   // never; stay in Livewire (bound b
 
 In streaming mode the config `row_limit` does not apply; `streaming.hard_cap` (default 500 000, `null` = none) does. An
 explicit `->rowLimit(n)` on the action holds in both modes: when streaming, the lower of it and `hard_cap` applies.
+The download request counts the rows again, so rows added between the click and the download cannot carry the file
+past the cap. Grouped, `HAVING` and `UNION` queries (for example from `queryUsing()`) are counted by their result rows,
+not by the size of their first group.
 
 **Panels with tenancy never stream.** Filament scopes a tenant panel's queries through a global scope that does nothing
 without a current tenant, and the tenant comes from the page's URL and the tenant middleware — neither of which the
