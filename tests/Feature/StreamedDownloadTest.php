@@ -224,6 +224,32 @@ class StreamedDownloadTest extends TestCase
         $this->assertArrayNotHasKey('redirect', $capped->effects);
     }
 
+    public function test_caps_read_from_env_as_numeric_strings_still_apply(): void
+    {
+        $this->orders();
+
+        // A published config with env('XLSX_HARD_CAP', ...) gives strings.
+        config(['filament-xlsx-export.streaming.hard_cap' => '2']);
+        $this->streamedHeader();
+        $capped = Livewire::test(OrdersTable::class)
+            ->callAction(TestAction::make('xlsxExport')->table(), ['columns' => ['name']])
+            ->assertNotified(__('filament-xlsx-export::xlsx-export.too_many_rows_title'));
+        $this->assertArrayNotHasKey('redirect', $capped->effects);
+
+        config(['filament-xlsx-export.streaming.hard_cap' => null, 'filament-xlsx-export.row_limit' => '1']);
+        OrdersTable::$header = static fn () => XlsxExportAction::make()->streamed(false);
+        $limited = Livewire::test(OrdersTable::class)
+            ->callAction(TestAction::make('xlsxExport')->table(), ['columns' => ['name']])
+            ->assertNotified(__('filament-xlsx-export::xlsx-export.too_many_rows_title'));
+        $this->assertArrayNotHasKey('download', $limited->effects);
+
+        config(['filament-xlsx-export.row_limit' => null]);
+        OrdersTable::$header = static fn () => XlsxExportAction::make()->streamed()->rowLimit(static fn (): string => '2');
+        Livewire::test(OrdersTable::class)
+            ->callAction(TestAction::make('xlsxExport')->table(), ['columns' => ['name']])
+            ->assertNotified(__('filament-xlsx-export::xlsx-export.too_many_rows_title'));
+    }
+
     public function test_an_unsigned_or_tampered_link_is_refused(): void
     {
         $this->orders();

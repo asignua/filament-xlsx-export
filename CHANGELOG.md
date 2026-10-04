@@ -17,6 +17,6 @@ All notable changes to `asignua/filament-xlsx-export` are documented here.
 - A page header action and a table action with the same name are told apart by the streaming route.
 - The bulk export honours `authorizeIndividualRecords()` and the table's `checkIfRecordIsSelectableUsing()`, like core bulk actions: refused rows are skipped as the file streams (`XlsxExporter::filterRecordsUsing()`).
 - `->footer()` lines under the data and total rows.
-- Memory-safe chunked reads (`lazy()`), a configurable row limit and a friendly notification when it is exceeded.
+- Memory-safe chunked reads (`lazy()`), a configurable row limit and a friendly notification when it is exceeded. `row_limit`, `streaming.hard_cap` and a `rowLimit()` closure may be numeric strings (`env()` in a published config).
 - `ExportsTypedXlsx` trait for Filament's own queued `Exporter` classes: typed cells, widths, frozen header and filter in the XLSX they produce.
 - Translations: English, Ukrainian, German, Spanish, French, Italian, Dutch, Polish, Brazilian Portuguese and Turkish.

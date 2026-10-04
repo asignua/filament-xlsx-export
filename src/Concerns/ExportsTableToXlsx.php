@@ -318,19 +318,19 @@ trait ExportsTableToXlsx
     {
         $explicit = $this->xlsxRowLimit === null
             ? null
-            : $this->evaluate($this->xlsxRowLimit, ['livewire' => $livewire, 'data' => $data]);
+            : self::xlsxCap($this->evaluate($this->xlsxRowLimit, ['livewire' => $livewire, 'data' => $data]));
 
         if ($stream) {
             $caps = array_filter(
-                [$explicit, config('filament-xlsx-export.streaming.hard_cap')],
-                static fn (mixed $cap): bool => is_int($cap) && $cap > 0,
+                [$explicit, self::xlsxCap(config('filament-xlsx-export.streaming.hard_cap'))],
+                static fn (?int $cap): bool => $cap !== null && $cap > 0,
             );
             $limit = $caps === [] ? null : min($caps);
         } else {
-            $limit = $explicit ?? config('filament-xlsx-export.row_limit');
+            $limit = $explicit ?? self::xlsxCap(config('filament-xlsx-export.row_limit'));
         }
 
-        if (!is_int($limit) || $limit <= 0 || $count <= $limit) {
+        if ($limit === null || $limit <= 0 || $count <= $limit) {
             return false;
         }
 
@@ -344,6 +344,15 @@ trait ExportsTableToXlsx
             ->send();
 
         return true;
+    }
+
+    /**
+     * A cap as an int: a published config that reads it with `env()` gets a numeric string, and
+     * dropping that would silently remove the limit. Anything else is no cap.
+     */
+    private static function xlsxCap(mixed $cap): ?int
+    {
+        return is_int($cap) || (is_string($cap) && is_numeric(trim($cap))) ? (int) $cap : null;
     }
 
     public function isBulkExport(): bool
