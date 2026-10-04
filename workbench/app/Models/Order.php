@@ -42,6 +42,16 @@ class Order extends Model
     }
 
     /**
+     * The same customer under another name, for a column the table toggles off by default.
+     *
+     * @return BelongsTo<Customer, $this>
+     */
+    public function buyer(): BelongsTo
+    {
+        return $this->belongsTo(Customer::class, 'customer_id');
+    }
+
+    /**
      * @return Attribute<string, never>
      */
     protected function shout(): Attribute

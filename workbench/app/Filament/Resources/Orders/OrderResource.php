@@ -52,6 +52,9 @@ class OrderResource extends Resource
                 TextColumn::make('placed_at')->dateTime(),
                 TextColumn::make('zip'),
                 TextColumn::make('notes')->toggleable(isToggledHiddenByDefault: true),
+                // Toggled off: the table query neither eager-loads nor aggregates them.
+                TextColumn::make('buyer.name')->label('Buyer')->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('customer_exists')->exists('customer')->label('Has customer')->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('secret')->hidden(),
             ])
             ->filters([

@@ -246,8 +246,8 @@ trait ExportsTableToXlsx
      */
     protected function exportQuery(HasTable $livewire, Builder $query, array $data): ?StreamedResponse
     {
-        $query = $this->scopedQuery($livewire, $query, $data);
         $columns = $this->pickedColumns($livewire, $data);
+        $query = $this->loadPickedColumns($this->scopedQuery($livewire, $query, $data), $columns);
 
         if ($columns === []) {
             Notification::make()->title(__('filament-xlsx-export::xlsx-export.no_columns'))->warning()->send();
@@ -283,8 +283,8 @@ trait ExportsTableToXlsx
      */
     public function streamExport(HasTable $livewire, Builder $query, array $data): ?StreamedResponse
     {
-        $query = $this->scopedQuery($livewire, $query, $data);
         $columns = $this->pickedColumns($livewire, $data);
+        $query = $this->loadPickedColumns($this->scopedQuery($livewire, $query, $data), $columns);
         $count = $this->countXlsxRows($query);
 
         // Rows may have been added between the click and the download (up to the link's ttl), and
@@ -370,6 +370,36 @@ trait ExportsTableToXlsx
     {
         if ($this->xlsxQueryUsing instanceof Closure) {
             $query = $this->evaluate($this->xlsxQueryUsing, ['query' => $query, 'data' => $data, 'livewire' => $livewire]) ?? $query;
+        }
+
+        return $query;
+    }
+
+    /**
+     * Filament eager-loads relationships and adds `counts()` / `sum()` / `exists()` aggregates for
+     * the columns the table SHOWS; the picker also offers the toggled-off ones. Without this a
+     * picked toggled-off aggregate column is exported empty and a relationship column lazy-loads
+     * once per row (or throws mid-stream under `Model::preventLazyLoading()`). The bulk query
+     * already covers every table column.
+     *
+     * @param Builder<Model>     $query
+     * @param list<ExportColumn> $columns
+     *
+     * @return Builder<Model>
+     */
+    protected function loadPickedColumns(Builder $query, array $columns): Builder
+    {
+        if ($this->isBulkExport()) {
+            return $query;
+        }
+
+        foreach ($columns as $column) {
+            if ($column->column === null || !$column->column->isToggledHidden()) {
+                continue;
+            }
+
+            $column->column->applyRelationshipAggregates($query);
+            $column->column->applyEagerLoading($query);
         }
 
         return $query;

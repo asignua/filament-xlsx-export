@@ -13,14 +13,17 @@ use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
 use Filament\PanelRegistry;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\TestResponse;
 use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Workbench\App\Filament\Resources\Orders\OrderResource;
 use Workbench\App\Filament\Resources\Orders\Pages\ListOrders;
 use Workbench\App\Livewire\OrdersTable;
+use Workbench\App\Models\Customer;
 use Workbench\App\Models\Order;
 use Workbench\App\Models\User;
 
@@ -108,6 +111,42 @@ class StreamedDownloadTest extends TestCase
         );
 
         $this->assertSame(['Alpha'], array_slice($this->workbookOf($searched)->column(0), 0, 1));
+    }
+
+    /**
+     * Filament eager-loads and aggregates only the columns the table shows; a column the user
+     * toggled off but ticked in the picker needs the same, or it is empty / lazy-loaded per row.
+     *
+     * @return array<string, array{bool}>
+     */
+    public static function modes(): array
+    {
+        return ['livewire' => [false], 'streamed' => [true]];
+    }
+
+    #[DataProvider('modes')]
+    public function test_picked_toggled_off_relationship_and_aggregate_columns_are_loaded(bool $streamed): void
+    {
+        $acme = Customer::query()->create(['name' => 'Acme']);
+        $this->makeOrder('Alpha', ['customer_id' => $acme->id]);
+        $this->makeOrder('Bravo');
+        OrdersTable::$header = static fn () => XlsxExportAction::make()->streamed($streamed);
+        Model::preventLazyLoading();
+
+        try {
+            $component = Livewire::test(OrdersTable::class)
+                ->sortTable('name')
+                ->callAction(TestAction::make('xlsxExport')->table(), ['columns' => ['name', 'buyer.name', 'customer_exists']]);
+
+            $book = $streamed ? $this->workbookOf($this->linkOf($component)) : $this->downloadedWorkbook($component);
+        } finally {
+            Model::preventLazyLoading(false);
+        }
+
+        $this->assertSame(['Name', 'Buyer', 'Has customer'], array_map(static fn (array $c): ?string => $c['value'], $book->rows[1]));
+        $this->assertSame('Acme', $book->cell(2, 1)['value']);
+        $this->assertNotNull($book->cell(2, 2)['value'], 'The exists() aggregate was not added to the query.');
+        $this->assertNotNull($book->cell(3, 2)['value'], 'The exists() aggregate was not added to the query.');
     }
 
     public function test_the_streamed_bulk_action_exports_only_the_selection(): void
