@@ -156,9 +156,6 @@ final class XlsxExporter
     }
 
     /**
-     * Data rows written by the last run (without the header and the total).
-     */
-    /**
      * Skip the records the closure refuses (`fn (Model $record): bool`), checked as they stream.
      */
     public function filterRecordsUsing(?Closure $filter): self
@@ -168,6 +165,9 @@ final class XlsxExporter
         return $this;
     }
 
+    /**
+     * Data rows written by the last run (without the header and the total).
+     */
     public function writtenRows(): int
     {
         return $this->writtenRows;
