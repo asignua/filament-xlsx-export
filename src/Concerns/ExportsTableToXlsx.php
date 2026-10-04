@@ -406,6 +406,27 @@ trait ExportsTableToXlsx
     }
 
     /**
+     * The per-record gates Filament applies to the selected records of every core bulk action:
+     * `authorizeIndividualRecords()` on the action and `checkIfRecordIsSelectableUsing()` on the
+     * table. The export reads the selection as a query (so "select all" never loads a collection),
+     * which bypasses both; they are checked row by row as the file streams instead. The row count
+     * for the limits and `$rowCount` is taken before them.
+     */
+    protected function selectedRecordFilter(HasTable $livewire): ?Closure
+    {
+        $table = $livewire->getTable();
+        $selectable = $table->checksIfRecordIsSelectable();
+        $authorize = $this->shouldAuthorizeIndividualRecords();
+
+        if (!$selectable && !$authorize) {
+            return null;
+        }
+
+        return fn (Model $record): bool => (!$selectable || $table->isRecordSelectable($record))
+            && (!$authorize || $this->getIndividualRecordAuthorizationResponse($record)->allowed());
+    }
+
+    /**
      * @param array<string, mixed> $data
      *
      * @return list<ExportColumn>
@@ -450,6 +471,10 @@ trait ExportsTableToXlsx
             ->sheetName(is_string($title) && $title !== '' ? $title : (string) $table->getPluralModelLabel())
             ->params(['data' => $data, 'livewire' => $livewire])
             ->totalLabel($this->xlsxTotalLabel);
+
+        if ($this->isBulkExport()) {
+            $exporter->filterRecordsUsing($this->selectedRecordFilter($livewire));
+        }
 
         if ($this->xlsxChunkSize !== null) {
             $exporter->chunkSize($this->xlsxChunkSize);

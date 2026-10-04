@@ -33,6 +33,7 @@ class StreamedDownloadTest extends TestCase
     {
         OrdersTable::$header = null;
         OrdersTable::$bulk = null;
+        OrdersTable::$selectable = null;
         ListOrders::$header = null;
         OrderResource::$tableHeader = null;
         OrderResource::$ownOrdersOnly = false;
@@ -147,6 +148,29 @@ class StreamedDownloadTest extends TestCase
         $this->assertSame('Acme', $book->cell(2, 1)['value']);
         $this->assertNotNull($book->cell(2, 2)['value'], 'The exists() aggregate was not added to the query.');
         $this->assertNotNull($book->cell(3, 2)['value'], 'The exists() aggregate was not added to the query.');
+    }
+
+    /**
+     * Like every core bulk action, the export leaves out the selected rows the user may not act on
+     * (`authorizeIndividualRecords()`) and the rows the table does not let be selected.
+     */
+    #[DataProvider('modes')]
+    public function test_the_bulk_export_honours_individual_authorization_and_selectability(bool $streamed): void
+    {
+        $this->orders();
+        $this->makeOrder('Delta');
+        OrdersTable::$bulk = static fn () => XlsxExportBulkAction::make()
+            ->streamed($streamed)
+            ->authorizeIndividualRecords(static fn (Order $record): bool => $record->name !== 'Bravo');
+        OrdersTable::$selectable = static fn (Order $record): bool => $record->name !== 'Charlie';
+
+        $component = Livewire::test(OrdersTable::class)
+            ->selectTableRecords(Order::query()->pluck('id')->all())
+            ->callAction(TestAction::make('xlsxExportBulk')->table()->bulk(), ['columns' => ['name']]);
+
+        $book = $streamed ? $this->workbookOf($this->linkOf($component)) : $this->downloadedWorkbook($component);
+
+        $this->assertEqualsCanonicalizing(['Alpha', 'Delta'], $book->column(0));
     }
 
     public function test_the_streamed_bulk_action_exports_only_the_selection(): void

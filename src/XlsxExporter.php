@@ -7,6 +7,7 @@ namespace Asignua\FilamentXlsxExport;
 use Asignua\FilamentXlsxExport\Support\CellBuilder;
 use Asignua\FilamentXlsxExport\Support\CellFactory;
 use Asignua\FilamentXlsxExport\Support\CellValue;
+use Closure;
 use Filament\Tables\Columns\TextColumn;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -55,6 +56,8 @@ final class XlsxExporter
     private array $params = [];
 
     private int $writtenRows = 0;
+
+    private ?Closure $recordFilter = null;
 
     private CellBuilder $builder;
 
@@ -155,6 +158,16 @@ final class XlsxExporter
     /**
      * Data rows written by the last run (without the header and the total).
      */
+    /**
+     * Skip the records the closure refuses (`fn (Model $record): bool`), checked as they stream.
+     */
+    public function filterRecordsUsing(?Closure $filter): self
+    {
+        $this->recordFilter = $filter;
+
+        return $this;
+    }
+
     public function writtenRows(): int
     {
         return $this->writtenRows;
@@ -274,8 +287,14 @@ final class XlsxExporter
             $query->orderBy($query->getModel()->getQualifiedKeyName());
         }
 
+        $records = $query->lazy($this->chunkSize ?? max(1, (int) config('filament-xlsx-export.chunk_size', 500)));
+
+        if ($this->recordFilter !== null) {
+            $records = $records->filter($this->recordFilter);
+        }
+
         /** @var iterable<Model> */
-        return $query->lazy($this->chunkSize ?? max(1, (int) config('filament-xlsx-export.chunk_size', 500)));
+        return $records;
     }
 
     /**

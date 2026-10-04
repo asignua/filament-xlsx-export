@@ -32,11 +32,15 @@ class OrdersTable extends Component implements HasActions, HasSchemas, HasTable
 
     public static ?Closure $bulk = null;
 
+    /** `checkIfRecordIsSelectableUsing()` for a test. */
+    public static ?Closure $selectable = null;
+
     public function table(Table $table): Table
     {
         return OrderResource::table($table->query(Order::query()))
             ->headerActions([(static::$header ?? static fn (): XlsxExportAction => OrderResource::exportAction())()])
-            ->toolbarActions([(static::$bulk ?? static fn (): XlsxExportBulkAction => XlsxExportBulkAction::make())()]);
+            ->toolbarActions([(static::$bulk ?? static fn (): XlsxExportBulkAction => XlsxExportBulkAction::make())()])
+            ->checkIfRecordIsSelectableUsing(static::$selectable);
     }
 
     public function render(): string

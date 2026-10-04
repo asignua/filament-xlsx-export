@@ -99,7 +99,9 @@ columns the table shows right now: columns toggled off and `hidden()` ones stay 
 `->chooseColumns(false)` skips the modal and downloads at once.
 
 The file is exactly the table's query: filters, search and sort. The bulk action turns the selection (including "select
-all" across pages, with its deselections) into a query, never into a loaded collection.
+all" across pages, with its deselections) into a query, never into a loaded collection. Like every core bulk action it honours
+`->authorizeIndividualRecords()` and the table's `checkIfRecordIsSelectableUsing()`: refused rows are skipped as the file
+streams (the row count used for the limits and `$rowCount` is taken before that check).
 
 ```php
 XlsxExportAction::make()

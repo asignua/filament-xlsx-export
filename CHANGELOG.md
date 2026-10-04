@@ -15,6 +15,7 @@ All notable changes to `asignua/filament-xlsx-export` are documented here.
 - Security: the title, caption and footer rows are written as text cells, like the data, so a value starting with `=` (for example a search term echoed in the caption) cannot become a formula.
 - A link that cannot be used (expired, used, another user's, action not found) sends the user back to the page with a notification instead of a bare 403/410 page.
 - A page header action and a table action with the same name are told apart by the streaming route.
+- The bulk export honours `authorizeIndividualRecords()` and the table's `checkIfRecordIsSelectableUsing()`, like core bulk actions: refused rows are skipped as the file streams (`XlsxExporter::filterRecordsUsing()`).
 - `->footer()` lines under the data and total rows.
 - Memory-safe chunked reads (`lazy()`), a configurable row limit and a friendly notification when it is exceeded.
 - `ExportsTypedXlsx` trait for Filament's own queued `Exporter` classes: typed cells, widths, frozen header and filter in the XLSX they produce.
