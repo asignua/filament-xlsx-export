@@ -7,7 +7,7 @@
 [![License](https://img.shields.io/packagist/l/asignua/filament-xlsx-export.svg?style=flat-square)](https://github.com/asignua/filament-xlsx-export/blob/main/LICENSE.md)
 [![Plumb score](https://plumbphp.dev/badges/asignua/filament-xlsx-export/composite.svg)](https://plumbphp.dev/asignua/filament-xlsx-export)
 
-<img class="filament-hidden" src="https://raw.githubusercontent.com/asignua/filament-xlsx-export/main/art/cover.jpg" alt="Filament XLSX Export">
+<img class="filament-hidden" src="https://raw.githubusercontent.com/asignua/filament-xlsx-export/v1.0.0/art/cover.jpg" alt="Filament XLSX Export">
 
 "Download what is on the screen" as a real Excel file: the table's current filters, search and sort — or the rows
 you ticked — streamed straight to the browser, with numbers that are numbers and dates that are dates.
@@ -43,11 +43,11 @@ This plugin does exactly that, and keeps core's `Exporter` usable too (see [Type
 
 The export modal with the column picker:
 
-![Export modal](https://raw.githubusercontent.com/asignua/filament-xlsx-export/main/art/export-modal.jpg)
+![Export modal](https://raw.githubusercontent.com/asignua/filament-xlsx-export/v1.0.0/art/export-modal.jpg)
 
 The downloaded workbook - numbers, dates and booleans are real cells, the total is a bold row (a rendering of the file's cells, not a screenshot of Excel):
 
-![The resulting workbook](https://raw.githubusercontent.com/asignua/filament-xlsx-export/main/art/workbook.jpg)
+![The resulting workbook](https://raw.githubusercontent.com/asignua/filament-xlsx-export/v1.0.0/art/workbook.jpg)
 
 ## Requirements
 
