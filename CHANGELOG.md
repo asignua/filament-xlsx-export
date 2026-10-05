@@ -2,7 +2,7 @@
 
 All notable changes to `asignua/filament-xlsx-export` are documented here.
 
-## v1.0.0 - unreleased
+## v1.0.0 - 2026-10-05
 
 - `XlsxExportAction` (header action) and `XlsxExportBulkAction`: an immediate, streamed `.xlsx` of the table's current query — filters, search, sort, and for the bulk action the selected rows (including "select all" across pages). No queue, no temporary CSV, no stored file.
 - Typed cells: numbers (money and decimals included) stay numbers, dates and date-times are Excel dates with a number format, booleans are TRUE/FALSE, enums give their `HasLabel` label, lists are joined.
