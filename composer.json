@@ -1,6 +1,6 @@
 {
     "name": "asignua/filament-xlsx-export",
-    "description": "Immediate, streamed XLSX export of the current Filament table: real numbers, dates and booleans in the cells, a column picker with select-all, export options that change the query, no queue and no temporary CSV.",
+    "description": "\"Download what is on the screen\" as a real Excel file: the Filament 5 table's current filters, search and sort — or the selected rows — streamed straight to the browser, with numbers, dates, money and booleans as typed cells instead of text. A column picker with select-all, export options that change the query, frozen header and autofilter, no queue and no intermediate CSV; a trait also gives core's queued Exporter typed XLSX cells.",
     "keywords": ["filament", "filament-plugin", "laravel", "xlsx", "excel", "export", "openspout"],
     "homepage": "https://github.com/asignua/filament-xlsx-export",
     "support": {
