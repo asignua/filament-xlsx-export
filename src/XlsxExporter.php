@@ -235,11 +235,13 @@ final class XlsxExporter
 
         $totals = [];
 
+        $rowIndex = 0;
+
         foreach ($this->records() as $record) {
             $values = [];
 
             foreach ($this->columns as $index => $column) {
-                $cell = $this->cells->make($column, $record, $this->params);
+                $cell = $this->cells->make($column, $record, $this->params, $rowIndex);
                 $values[$index] = $cell;
 
                 if ($column->format->hasSum() && (is_int($cell->value) || is_float($cell->value))) {
@@ -249,6 +251,7 @@ final class XlsxExporter
 
             $writer->addRow($this->dataRow($values));
             $this->writtenRows++;
+            $rowIndex++;
         }
 
         if ($totals !== []) {
@@ -394,7 +397,10 @@ final class XlsxExporter
     {
         $name = trim(str_replace(['\\', '/', '?', '*', ':', '[', ']', "'"], ' ', (string) $title));
 
-        return $name === '' ? 'Export' : Str::limit($name, 31, '');
+        $name = $name === '' ? 'Export' : Str::limit($name, 31, '');
+
+        // Excel reserves this one (case-insensitive) and offers to "repair" the workbook.
+        return mb_strtolower($name) === 'history' ? $name.' 1' : $name;
     }
 
     /**
@@ -404,7 +410,14 @@ final class XlsxExporter
      */
     public static function safeFilename(string $filename): string
     {
-        $filename = preg_replace('/[\/\\\\%"\x00-\x1F]+/u', ' ', $filename) ?? $filename;
+        $filename = preg_replace('/[\/\\\\%"\x00-\x1F\x{00A2}\x{00BC}-\x{00BE}\x{2044}\x{2215}\x{FF0F}\x{FF3C}]+/u', ' ', $filename) ?? $filename;
+
+        // Laravel's ASCII fallback maps some characters to '/' ('½' -> '1/2'), which Symfony refuses.
+        if (str_contains(Str::ascii($filename), '/') || str_contains(Str::ascii($filename), '\\')) {
+            $filename = preg_replace('/[^\x20-\x7E\p{L}\p{N}]+/u', ' ', $filename) ?? $filename;
+            $filename = preg_replace('/[^\x20-\x7E]/u', '', $filename) ?? $filename;
+        }
+
         $filename = trim((string) preg_replace('/\s+/u', ' ', $filename));
         $filename = $filename === '' ? 'export' : $filename;
 

@@ -2,6 +2,18 @@
 
 All notable changes to `asignua/filament-xlsx-export` are documented here.
 
+## Unreleased
+
+- Fix: the streaming route switches the default auth guard to the panel's guard (as Filament's `Authenticate` middleware does), so `auth()`, Gate checks and scopes written with `auth()` see the page's user; `streaming.middleware` only needs to start the session.
+- Fix: `rowIndex()` columns and state closures typed `stdClass $rowLoop` no longer crash the export. `rowIndex()` numbers the file's rows from 1 whatever table page the user was on.
+- Fix: the `stdClass $rowLoop` a state closure receives is counted from the file's first row on any table page; only `rowIndex()` has the page offset compensated.
+- Docs: a nullable `boolean()` column reads FALSE for NULL; the README no longer suggests `formatStateUsing()` to tell them apart (core empties NULL first).
+- Fix: `formatted()` text is no longer parsed back into a date (which could swap day and month); a list state is formatted item by item.
+- Fix: `ExportsTypedXlsx` `boolean()` writes FALSE for the empty CSV cell core produces for `false`.
+- Fix: a guest on a table outside any panel stays in Livewire mode instead of getting a refused streaming link.
+- Fix: file names containing `¢`, `½` and similar no longer break the download; the sheet name `History` (reserved by Excel) becomes `History 1`.
+- A `SelectColumn` exports the option label the table shows.
+
 ## v1.0.0 - 2026-10-05
 
 - `XlsxExportAction` (header action) and `XlsxExportBulkAction`: an immediate, streamed `.xlsx` of the table's current query — filters, search, sort, and for the bulk action the selected rows (including "select all" across pages). No queue, no temporary CSV, no stored file.

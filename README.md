@@ -162,7 +162,7 @@ The `value()` closure takes `$record`, `$state` (what the table column would hav
 | `label()` | header text |
 | `number(?string)`, `integer()`, `decimal($places)`, `money($symbol, $places)`, `percent($places)` | number formats |
 | `date()`, `dateTime()`, `time()` | date formats (Excel format codes) |
-| `text()`, `boolean()` | force the cell type |
+| `text()`, `boolean()` | force the cell type (`boolean()` writes FALSE for an empty CSV cell, so a nullable boolean reads FALSE for NULL) |
 | `width()` | column width in characters |
 | `value()` | where the value comes from |
 | `divideBy()` | divide numbers (money stored in cents) |
@@ -221,6 +221,9 @@ XlsxExportAction::make()->streamed();        // always stream
 XlsxExportAction::make()->streamed(false);   // never; stay in Livewire (bound by row_limit)
 ```
 
+A guest (no logged-in user on the panel's guard, e.g. a public table outside any panel) never streams: the link is bound
+to the user it was issued to, so such a table always stays in Livewire mode, bound by `row_limit`.
+
 In streaming mode the config `row_limit` does not apply; `streaming.hard_cap` (default 500 000, `null` = none) does. An
 explicit `->rowLimit(n)` on the action holds in both modes: when streaming, the lower of it and `hard_cap` applies.
 The download request counts the rows again, so rows added between the click and the download cannot carry the file
@@ -263,8 +266,8 @@ hooks, finds the action by name and asks the table for `getFilteredSortedTableQu
 - State changes between click and download (a few seconds) are not seen: the snapshot is the state at the click.
 - The token store is the default cache store; use a shared one (Redis, database) behind several servers.
 
-Route options live under `streaming` in the config: `register_route`, `path`, `middleware` (default `['web']`; it must
-start the session and see the panel's guard). The controller checks the URL signature itself. To register your own route
+Route options live under `streaming` in the config: `register_route`, `path`, `middleware` (default `['web']`; it only
+needs to start the session; the controller itself switches the default guard to the panel's guard). The controller checks the URL signature itself. To register your own route
 instead (`register_route => false`), keep its name and its `{token}` parameter, since the action generates the link with
 `URL::temporarySignedRoute(StreamedExports::ROUTE, ...)`:
 
@@ -300,7 +303,7 @@ class OrderExporter extends Exporter
 
 There is deliberately **no auto-detection**: a CSV cell `00123` or `1e5` is indistinguishable from a number, and guessing
 would silently corrupt zip codes, phone numbers and IDs. Columns you declare are converted from the CSV text back into numbers, dates and booleans while the workbook is written;
-the rest stay text. The header row stays text, and the trait adds widths, a frozen header and a filter. It is still
+the rest stay text. Core writes an empty CSV cell for both `false` and `null`, so a `boolean()` column reads FALSE for NULL too (core turns `null` into an empty string, which `boolean()` reads as FALSE). If NULL must stay empty, drop `boolean()` and keep the column as text. The header row stays text, and the trait adds widths, a frozen header and a filter. It is still
 queued and still goes through CSV — that is core's design. What it cannot do: format a value that the CSV already lost
 (a number rounded by `formatStateUsing()`), and it needs the column's CSV text to parse (`Y-m-d H:i:s` for dates).
 

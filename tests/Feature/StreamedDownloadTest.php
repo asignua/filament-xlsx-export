@@ -14,6 +14,7 @@ use Filament\Facades\Filament;
 use Filament\PanelRegistry;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\TestResponse;
@@ -444,6 +445,61 @@ class StreamedDownloadTest extends TestCase
         $url = $this->linkOf(Livewire::test(ListOrders::class)->callAction('xlsxExport', ['columns' => ['name']]));
 
         $this->assertSame(['Mine'], $this->workbookOf($url)->column(0));
+    }
+
+    public function test_the_download_request_uses_the_panels_guard_as_the_default_guard(): void
+    {
+        config([
+            'auth.guards.staff' => ['driver' => 'session', 'provider' => 'users'],
+        ]);
+
+        $panel = Filament::getPanel('admin');
+        $owner = User::factory()->create();
+        $other = User::factory()->create();
+        $this->makeOrder('Mine', ['secret' => (string) $owner->getKey()]);
+        $this->makeOrder('Theirs', ['secret' => (string) $other->getKey()]);
+        OrderResource::$ownOrdersOnly = true;
+        ListOrders::$header = static fn (): array => [XlsxExportAction::make()->streamed()];
+
+        $panel->authGuard('staff');
+
+        try {
+            // The user is logged in on the panel's guard only; the app default (`web`) has nobody.
+            $this->actingAs($owner, 'staff');
+            $url = $this->linkOf(Livewire::test(ListOrders::class)->callAction('xlsxExport', ['columns' => ['name']]));
+
+            Auth::guard('web')->forgetUser();
+            Auth::shouldUse('web');
+            $this->assertNull(auth()->id());
+
+            $this->assertSame(['Mine'], $this->workbookOf($url)->column(0));
+        } finally {
+            $panel->authGuard('web');
+        }
+    }
+
+    public function test_a_guest_never_gets_a_streaming_link(): void
+    {
+        $this->orders();
+        $this->streamedHeader();
+
+        Filament::setCurrentPanel(null);
+        Filament::getPanel('admin')->default(false);
+        app(PanelRegistry::class)->defaultPanel = null;
+
+        try {
+            Auth::guard('web')->forgetUser();
+
+            $component = Livewire::test(OrdersTable::class)
+                ->callAction(TestAction::make('xlsxExport')->table(), ['columns' => ['name']]);
+
+            $this->assertArrayNotHasKey('redirect', $component->effects);
+            $this->assertEqualsCanonicalizing(['Alpha', 'Bravo', 'Charlie'], array_slice($this->downloadedWorkbook($component)->column(0), 0, 3));
+        } finally {
+            Filament::getPanel('admin')->default();
+            app(PanelRegistry::class)->defaultPanel = null;
+            Filament::setCurrentPanel('admin');
+        }
     }
 
     public function test_a_grouped_query_counts_its_groups_for_the_limit_the_threshold_and_row_count(): void

@@ -18,6 +18,7 @@ use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Contracts\HasTable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use Livewire\Component;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -257,7 +258,8 @@ trait ExportsTableToXlsx
 
         $count = $this->countXlsxRows($query);
         $streaming = (bool) config('filament-xlsx-export.streaming.enabled', true)
-            && StreamedExports::supportsPanel(Filament::getCurrentPanel());
+            && StreamedExports::supportsPanel(Filament::getCurrentPanel())
+            && $this->hasStreamingUser();
         $stream = $streaming && ($this->xlsxStreamed ?? $count > (int) config('filament-xlsx-export.streaming.above_rows', 5000));
 
         if ($this->exceedsXlsxRowLimit($livewire, $data, $count, $stream)) {
@@ -272,6 +274,17 @@ trait ExportsTableToXlsx
         }
 
         return $this->makeExporter($livewire, $query, $columns, $data, $count)->download($this->resolveFileName($livewire, $data, $count));
+    }
+
+    /**
+     * The download link is bound to the user it was issued to; a guest has none, so a guest stays
+     * in Livewire mode (bound by `row_limit`).
+     */
+    private function hasStreamingUser(): bool
+    {
+        $guard = Filament::getCurrentPanel()?->getAuthGuard() ?? Auth::getDefaultDriver();
+
+        return Auth::guard($guard)->check();
     }
 
     /**

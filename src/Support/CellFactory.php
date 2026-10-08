@@ -11,11 +11,14 @@ use Carbon\CarbonImmutable;
 use Closure;
 use DateTimeInterface;
 use Filament\Support\Contracts\HasLabel;
+use Filament\Tables\Columns\SelectColumn;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Contracts\HasTable;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Date;
+use ReflectionFunction;
 use Stringable;
 use Throwable;
 use UnitEnum;
@@ -35,7 +38,7 @@ final class CellFactory
     /**
      * @param array<string, mixed> $params extra named arguments for value closures (`data`, `livewire`)
      */
-    public function make(ExportColumn $export, Model $record, array $params = []): CellValue
+    public function make(ExportColumn $export, Model $record, array $params = [], int $index = 0): CellValue
     {
         $column = $export->column;
         $format = $export->format;
@@ -43,6 +46,21 @@ final class CellFactory
 
         if ($column !== null) {
             $column->record($record);
+            // rowIndex() and any state closure typed `stdClass $rowLoop` read the loop object. The loop
+            // stays truthful (counted from the file's first row). Only Filament's own rowIndex() adds
+            // `perPage * (page - 1)` of the table page the user is on, so only that column gets the
+            // offset taken back out of its loop.
+            $loopIndex = $this->isRowIndexColumn($column) ? $index - $this->pageOffset($params['livewire'] ?? null) : $index;
+            $column->rowLoop((object) [
+                'index' => $loopIndex,
+                'iteration' => $loopIndex + 1,
+                'first' => $index === 0,
+                'last' => false,
+                'count' => null,
+                'remaining' => null,
+                'depth' => 1,
+                'parent' => null,
+            ]);
             $column->clearCachedState();
             $state = $column->getState();
         }
@@ -50,7 +68,16 @@ final class CellFactory
         if (($valueClosure = $format->getValue()) instanceof Closure) {
             $state = app()->call($valueClosure, [...$params, 'record' => $record, 'state' => $state, 'column' => $column]);
         } elseif ($format->isFormatted() && $column instanceof TextColumn) {
-            $state = $this->text($column->formatState($state));
+            $state = $this->formatState($column, $state);
+
+            // The display string is text: parsing it back would read '05/01/2026' as 1 May.
+            if ($format->getType() === ColumnFormat::AUTO) {
+                return new CellValue($state === null ? null : $this->clip($state), $format->getNumberFormat());
+            }
+        } elseif ($column instanceof SelectColumn && is_scalar($state) && $state !== '') {
+            // The table shows the option label, not the stored key.
+            $options = $column->getOptions();
+            $state = $options[(string) $state] ?? $state;
         }
 
         if ($format->getType() === ColumnFormat::TEXT) {
@@ -86,16 +113,68 @@ final class CellFactory
     }
 
     /**
+     * Whether the column's state is the closure TextColumn::rowIndex() installs (a closure scoped to
+     * TextColumn itself; a user's own state closure is scoped to their class).
+     */
+    private function isRowIndexColumn(object $column): bool
+    {
+        if (!$column instanceof TextColumn) {
+            return false;
+        }
+
+        $state = Closure::bind(fn (): mixed => $this->getStateUsing, $column, TextColumn::class)();
+
+        return $state instanceof Closure
+            && (new ReflectionFunction($state))->getClosureScopeClass()?->getName() === TextColumn::class;
+    }
+
+    /**
+     * The rows Filament's rowIndex() adds for the page the table is on.
+     */
+    private function pageOffset(mixed $livewire): int
+    {
+        if (!$livewire instanceof HasTable) {
+            return 0;
+        }
+
+        $perPage = $livewire->getTableRecordsPerPage();
+
+        return is_numeric($perPage) ? (int) $perPage * max(0, (int) $livewire->getTablePage() - 1) : 0;
+    }
+
+    /**
+     * Filament formats a list state item by item; formatStateUsing() closures and limit() expect a
+     * single value.
+     */
+    private function formatState(TextColumn $column, mixed $state): ?string
+    {
+        if ($state instanceof Collection) {
+            $state = $state->all();
+        }
+
+        if (is_array($state)) {
+            return $this->text(array_map(static fn (mixed $item): mixed => $column->formatState($item), $state));
+        }
+
+        return $this->text($column->formatState($state));
+    }
+
+    /**
      * The same typing for a value that already arrived as text, e.g. a CSV cell of Filament's
      * own exporter. Only columns that declare a type are converted.
      */
     public function fromText(ExportColumn $export, ?string $text): CellValue
     {
+        $type = $export->format->getType();
+
+        // Core's getFormattedState() is `?string`, so a false state arrives as ''.
+        if ($text === '' && $type === ColumnFormat::BOOLEAN) {
+            return new CellValue(false);
+        }
+
         if ($text === null || $text === '') {
             return CellValue::empty();
         }
-
-        $type = $export->format->getType();
 
         if ($type === ColumnFormat::AUTO || $type === ColumnFormat::TEXT) {
             return new CellValue($this->clip($text), $export->format->getNumberFormat());

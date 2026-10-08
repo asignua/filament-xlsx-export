@@ -44,6 +44,11 @@ final class DownloadController
             return $this->refuse($payload, 'link_unusable');
         }
 
+        // What Filament's Authenticate middleware does for a panel request: the default guard is the
+        // panel's, so auth()->user(), Gate checks and scopes written with auth() see the same user as
+        // on the page. The guard was validated by the owner check above.
+        Auth::shouldUse($payload['guard']);
+
         // A table outside any panel stores no panel id: it gets no panel here either, rather than
         // the default one (an unrelated panel, or an exception when none is marked default).
         $panel = null;
