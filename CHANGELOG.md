@@ -2,7 +2,7 @@
 
 All notable changes to `asignua/filament-xlsx-export` are documented here.
 
-## Unreleased
+## v1.0.1 - 2026-10-08
 
 - Fix: the streaming route switches the default auth guard to the panel's guard (as Filament's `Authenticate` middleware does), so `auth()`, Gate checks and scopes written with `auth()` see the page's user; `streaming.middleware` only needs to start the session.
 - Fix: `rowIndex()` columns and state closures typed `stdClass $rowLoop` no longer crash the export. `rowIndex()` numbers the file's rows from 1 whatever table page the user was on.
