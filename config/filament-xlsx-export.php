@@ -45,6 +45,39 @@ return [
     ],
 
     /*
+    |--------------------------------------------------------------------------
+    | Queued mode (->queue() / ->queueWhenMoreThan())
+    |--------------------------------------------------------------------------
+    |
+    | An action that opts in builds its file in a background job and tells the user through a
+    | Filament database notification (the panel needs ->databaseNotifications()) with a signed
+    | download link. `enabled` = false makes every queued action synchronous again.
+    | `connection` / `queue` are the defaults for actions that do not name their own (null = the
+    | app's). The file goes to `disk` / `directory`; it and its link live `retention_hours`, then
+    | `xlsx-export:prune` deletes it (scheduled daily at `schedule.time` while `schedule.enabled`).
+    | `hard_cap` is the row limit of a queued export (null = none). `timeout` is the job's, in
+    | seconds. The route needs a session (`middleware`); its signed URL is built from APP_URL.
+    |
+    */
+    'queue' => [
+        'enabled' => true,
+        'connection' => null,
+        'queue' => null,
+        'disk' => 'local',
+        'directory' => 'filament-xlsx-exports',
+        'retention_hours' => 24,
+        'hard_cap' => 1_000_000,
+        'timeout' => 3600,
+        'register_route' => true,
+        'path' => 'filament-xlsx-export/file/{id}',
+        'middleware' => ['web'],
+        'schedule' => [
+            'enabled' => true,
+            'time' => '03:50',
+        ],
+    ],
+
+    /*
     | How many rows are read from the database at a time.
     */
     'chunk_size' => 500,

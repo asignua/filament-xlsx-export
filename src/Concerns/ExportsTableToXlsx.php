@@ -7,6 +7,8 @@ namespace Asignua\FilamentXlsxExport\Concerns;
 use Asignua\FilamentXlsxExport\ColumnFormat;
 use Asignua\FilamentXlsxExport\ExportColumn;
 use Asignua\FilamentXlsxExport\Support\ColumnResolver;
+use Asignua\FilamentXlsxExport\Support\ExportTooLarge;
+use Asignua\FilamentXlsxExport\Support\QueuedExports;
 use Asignua\FilamentXlsxExport\Support\StreamedExports;
 use Asignua\FilamentXlsxExport\XlsxExporter;
 use Closure;
@@ -55,6 +57,14 @@ trait ExportsTableToXlsx
     protected ?string $xlsxTotalLabel = null;
 
     protected ?bool $xlsxStreamed = null;
+
+    protected bool|Closure $xlsxQueued = false;
+
+    protected ?int $xlsxQueueThreshold = null;
+
+    protected ?string $xlsxQueueConnection = null;
+
+    protected ?string $xlsxQueueName = null;
 
     /** @var array<int, string>|Closure|string|null */
     protected string|array|Closure|null $xlsxFooter = null;
@@ -204,6 +214,34 @@ trait ExportsTableToXlsx
         return $this;
     }
 
+    /**
+     * Build the file in a queued job and tell the user when it is ready (a database notification
+     * with a signed, expiring download link). Opt-in: without it the export is synchronous.
+     *
+     * The job rebuilds the same query from the component's snapshot, so filters, search, sort, the
+     * bulk selection and the chosen columns all hold. A panel with tenancy, or a guest, stays
+     * synchronous: the job has no tenant and no user to notify.
+     */
+    public function queue(bool|Closure $condition = true, ?string $connection = null, ?string $queue = null): static
+    {
+        $this->xlsxQueued = $condition;
+        $this->xlsxQueueConnection = $connection;
+        $this->xlsxQueueName = $queue;
+
+        return $this;
+    }
+
+    /**
+     * Queue only the exports with MORE than `$rows` rows (the count the limits already use);
+     * smaller ones are built at once, as without `queue()`.
+     */
+    public function queueWhenMoreThan(int $rows, ?string $connection = null, ?string $queue = null): static
+    {
+        $this->xlsxQueueThreshold = max(0, $rows);
+
+        return $this->queue(true, $connection, $queue);
+    }
+
     protected function setUpXlsxExport(): void
     {
         $this->color('gray');
@@ -257,6 +295,11 @@ trait ExportsTableToXlsx
         }
 
         $count = $this->countXlsxRows($query);
+
+        if ($this->shouldQueueXlsx($count)) {
+            return $this->dispatchXlsxExport($livewire, $data, $count);
+        }
+
         $streaming = (bool) config('filament-xlsx-export.streaming.enabled', true)
             && StreamedExports::supportsPanel(Filament::getCurrentPanel())
             && $this->hasStreamingUser();
@@ -323,27 +366,16 @@ trait ExportsTableToXlsx
 
     /**
      * Livewire mode: `rowLimit()`, else config `row_limit`. Streaming: the lower of `rowLimit()`
-     * and `streaming.hard_cap`. Sends the refusal notification when the count is over it.
+     * and `streaming.hard_cap`. Queued: the lower of `rowLimit()` and `queue.hard_cap`. Sends the
+     * refusal notification when the count is over it.
      *
      * @param array<string, mixed> $data
      */
     protected function exceedsXlsxRowLimit(HasTable $livewire, array $data, int $count, bool $stream): bool
     {
-        $explicit = $this->xlsxRowLimit === null
-            ? null
-            : self::xlsxCap($this->evaluate($this->xlsxRowLimit, ['livewire' => $livewire, 'data' => $data]));
+        $limit = $this->xlsxLimit($livewire, $data, $stream ? 'streaming' : 'livewire');
 
-        if ($stream) {
-            $caps = array_filter(
-                [$explicit, self::xlsxCap(config('filament-xlsx-export.streaming.hard_cap'))],
-                static fn (?int $cap): bool => $cap !== null && $cap > 0,
-            );
-            $limit = $caps === [] ? null : min($caps);
-        } else {
-            $limit = $explicit ?? self::xlsxCap(config('filament-xlsx-export.row_limit'));
-        }
-
-        if ($limit === null || $limit <= 0 || $count <= $limit) {
+        if ($limit === null || $count <= $limit) {
             return false;
         }
 
@@ -357,6 +389,116 @@ trait ExportsTableToXlsx
             ->send();
 
         return true;
+    }
+
+    /**
+     * The row cap of a mode, or null for none. `$mode` is `livewire`, `streaming` or `queue`; the
+     * last two take the lower of the action's `rowLimit()` and the config's hard cap.
+     *
+     * @param array<string, mixed> $data
+     */
+    protected function xlsxLimit(HasTable $livewire, array $data, string $mode): ?int
+    {
+        $explicit = $this->xlsxRowLimit === null
+            ? null
+            : self::xlsxCap($this->evaluate($this->xlsxRowLimit, ['livewire' => $livewire, 'data' => $data]));
+
+        if ($mode === 'livewire') {
+            $limit = $explicit ?? self::xlsxCap(config('filament-xlsx-export.row_limit'));
+
+            return $limit !== null && $limit > 0 ? $limit : null;
+        }
+
+        $caps = array_filter(
+            [$explicit, self::xlsxCap(config('filament-xlsx-export.'.$mode.'.hard_cap'))],
+            static fn (?int $cap): bool => $cap !== null && $cap > 0,
+        );
+
+        return $caps === [] ? null : min($caps);
+    }
+
+    /**
+     * Whether this click becomes a background job: opted in (and above the threshold, when there is
+     * one), the feature is on, and the panel can carry the job — no tenancy (the job has no tenant),
+     * a logged-in user (the file and the notification belong to somebody).
+     */
+    protected function shouldQueueXlsx(int $count): bool
+    {
+        if (!(bool) $this->evaluate($this->xlsxQueued) || !(bool) config('filament-xlsx-export.queue.enabled', true)) {
+            return false;
+        }
+
+        if ($this->xlsxQueueThreshold !== null && $count <= $this->xlsxQueueThreshold) {
+            return false;
+        }
+
+        return StreamedExports::supportsPanel(Filament::getCurrentPanel()) && $this->hasStreamingUser();
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     */
+    protected function dispatchXlsxExport(HasTable $livewire, array $data, int $count): null
+    {
+        $limit = $this->xlsxLimit($livewire, $data, 'queue');
+
+        if ($limit !== null && $count > $limit) {
+            Notification::make()
+                ->title(__('filament-xlsx-export::xlsx-export.too_many_rows_title'))
+                ->body(__('filament-xlsx-export::xlsx-export.too_many_rows_body', [
+                    'count' => number_format($count),
+                    'limit' => number_format($limit),
+                ]))
+                ->warning()
+                ->send();
+
+            return null;
+        }
+
+        QueuedExports::dispatch(
+            StreamedExports::capture($livewire, (string) $this->getName(), $this->isBulkExport(), $data, $this->belongsToXlsxTable()),
+            $this->xlsxQueueConnection,
+            $this->xlsxQueueName,
+        );
+
+        Notification::make()
+            ->title(__('filament-xlsx-export::xlsx-export.queued_title'))
+            ->body(__('filament-xlsx-export::xlsx-export.queued_body'))
+            ->success()
+            ->send();
+
+        return null;
+    }
+
+    /**
+     * The job entry: the same file as `streamExport()`, written to `$path` instead of the browser.
+     * Called by `ExportXlsxJob` on a rehydrated component.
+     *
+     * @param Builder<Model>       $query
+     * @param array<string, mixed> $data
+     *
+     * @throws ExportTooLarge when the table grew past the cap between the click and the job
+     *
+     * @return array{file_name: string, rows: int}
+     */
+    public function queuedExport(HasTable $livewire, Builder $query, array $data, string $path): array
+    {
+        $columns = $this->pickedColumns($livewire, $data);
+        $query = $this->loadPickedColumns($this->scopedQuery($livewire, $query, $data), $columns);
+        $count = $this->countXlsxRows($query);
+        $limit = $this->xlsxLimit($livewire, $data, 'queue');
+
+        if ($limit !== null && $count > $limit) {
+            throw new ExportTooLarge($count, $limit);
+        }
+
+        $exporter = $this->makeExporter($livewire, $query, $columns, $data, $count);
+        $exporter->writeTo($path);
+
+        return [
+            'file_name' => XlsxExporter::safeFilename($this->resolveFileName($livewire, $data, $count)),
+            'rows' => $exporter->writtenRows(),
+        ];
     }
 
     /**

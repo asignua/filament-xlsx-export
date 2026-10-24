@@ -278,6 +278,57 @@ Route::middleware(['web'])
     ->name(\Asignua\FilamentXlsxExport\Support\StreamedExports::ROUTE); // 'filament-xlsx-export.download'
 ```
 
+## Big exports in the background
+
+Opt in per action and the click no longer waits for the file: a queued job builds it, then the user gets a Filament
+database notification with a **Download** button.
+
+```php
+XlsxExportAction::make()->queue();                                   // always in the background
+XlsxExportAction::make()->queue(connection: 'redis', queue: 'exports');
+XlsxExportAction::make()->queueWhenMoreThan(10_000);                 // small exports stay instant
+XlsxExportBulkAction::make()->queue();                               // same on the bulk action
+```
+
+The user sees a toast ("Export started, you will get a notification"); when the job finishes, the bell shows the file
+with a signed link. A failure produces a danger notification instead, and a table that grew past the cap while the job
+waited produces the "too many rows" one.
+
+**Requirements.** The panel needs `->databaseNotifications()` and the `notifications` table; the user model must use
+`Notifiable`; a queue worker must run (with `QUEUE_CONNECTION=sync` the job runs inside the click, which works but is
+no faster). Without database notifications the file is still written, but nobody is told: the job logs one `info` line
+instead — so turn them on. Panels with tenancy and guests stay synchronous (the job has no tenant and nobody to
+notify), exactly like they never stream.
+
+**How the query reaches the job — and why not by serializing it.** A query cannot be shipped soundly: eager loads,
+casts and the table's columns are closures, and replaying SQL plus bindings would lose them. Filament core's own
+export action serializes the builder with `anourvalar/eloquent-serialize` (`EloquentSerializeFacade`), which keeps
+wheres, orders and eager-load names but not the table's state or closures; ours must reproduce the *screen* — filters, search,
+sort, the bulk selection with "select all" and deselections, toggled columns. So the job gets the same hand-over as the
+streaming route: the component's own signed Livewire **snapshot** (plain arrays), the action's name and the modal's
+values. The worker rehydrates the component, finds the action by name and asks the table for
+`getFilteredSortedTableQuery()` / `getSelectedTableRecordsQuery()` — the query the table itself would build. Title,
+caption, footer, formats and `queryUsing()` are code and are evaluated there, with the same `$data`, `$livewire` and
+`$rowCount` as in the synchronous path; the per-record bulk gates (`authorizeIndividualRecords()`,
+`checkIfRecordIsSelectableUsing()`) run in the job under the clicking user. The trade-offs are the streaming mode's (see
+above): the component must be rehydratable from its public properties, the panel's persistent middleware does not run,
+and the state is the one at the click. The snapshot travels in the job payload, so a bulk selection of thousands
+of hand-picked keys makes a payload of that size (a "select all" is only a flag plus the deselected keys).
+
+**Where the file goes.** `queue.disk` (default `local`) under `queue.directory` (`filament-xlsx-exports/`), as
+`<ulid>.xlsx` plus a small `<ulid>.json` (owner, download name) — no table, no migration. The link is a temporary signed
+route (`queue.path`, built from `APP_URL`, so set it for workers) that streams the file only to the user it belongs to;
+another user, a guest, a forged or expired link and a pruned file are sent back to the panel with a notification. The
+link is not single-use (a notification can be clicked twice) and lives `queue.retention_hours` (24).
+
+**Pruning.** `php artisan xlsx-export:prune [--hours=24]` deletes older files; the plugin schedules it daily at
+`queue.schedule.time` (03:50) while `queue.schedule.enabled` is true — the app's scheduler (`schedule:run`) must run.
+`--hours=0` deletes nothing.
+
+Config (`queue.*`): `enabled` (false makes every queued action synchronous), `connection`, `queue`, `disk`,
+`directory`, `retention_hours`, `hard_cap` (rows, default 1 000 000; also `->rowLimit(n)`, the lower holds), `timeout`
+(job, seconds), `register_route`, `path`, `middleware`, `schedule.enabled`, `schedule.time`.
+
 ## Typed cells for core exporters
 
 Core's queued `Exporter` writes CSV files and then copies them into an XLSX as strings; the plugin cannot change the
@@ -309,7 +360,7 @@ queued and still goes through CSV — that is core's design. What it cannot do: 
 
 ## Configuration
 
-`config/filament-xlsx-export.php`: `row_limit`, `streaming.*`, `chunk_size`, `header.bold`, `header.background`, `freeze_header`,
+`config/filament-xlsx-export.php`: `row_limit`, `streaming.*`, `queue.*`, `chunk_size`, `header.bold`, `header.background`, `freeze_header`,
 `auto_filter`, `formats.*` (Excel number formats for dates, date-times, times and money), `width.min`, `width.max`,
 `total_label`. Everything is a plain value, so the config can be cached.
 

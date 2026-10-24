@@ -44,13 +44,31 @@ final class StreamedExports
     public static function issue(HasTable $livewire, string $action, bool $bulk, array $data, ?bool $tableAction = null): string
     {
         $token = Str::random(48);
+        $ttl = self::ttl();
+
+        Cache::put(self::PREFIX.$token, self::capture($livewire, $action, $bulk, $data, $tableAction), $ttl + 30);
+
+        return URL::temporarySignedRoute(self::ROUTE, now()->addSeconds($ttl), ['token' => $token]);
+    }
+
+    /**
+     * Everything a later request (the download route, or a queued job) needs to rebuild this
+     * export: plain data only, no closures and no models. The queued mode stores the same array in
+     * the job, so both modes rebuild the query one way.
+     *
+     * @param array<string, mixed> $data        the export modal's values
+     * @param bool|null            $tableAction see `issue()`
+     *
+     * @return array{snapshot: array<string, mixed>, action: string, bulk: bool, table: bool|null, data: array<string, mixed>, guard: string, user: int|string|null, panel: string|null, locale: string, back: string|null}
+     */
+    public static function capture(HasTable $livewire, string $action, bool $bulk, array $data, ?bool $tableAction = null): array
+    {
         $panel = Filament::getCurrentPanel();
         // A table outside any panel has no panel guard; Filament::getAuthGuard() would fall back to
         // the default panel (or throw without one), whose guard may not be the page's.
         $guard = $panel?->getAuthGuard() ?? Auth::getDefaultDriver();
-        $ttl = self::ttl();
 
-        Cache::put(self::PREFIX.$token, [
+        return [
             'snapshot' => self::snapshot($livewire),
             'action' => $action,
             'bulk' => $bulk,
@@ -61,9 +79,7 @@ final class StreamedExports
             'panel' => $panel?->getId(),
             'locale' => app()->getLocale(),
             'back' => self::backUrl(),
-        ], $ttl + 30);
-
-        return URL::temporarySignedRoute(self::ROUTE, now()->addSeconds($ttl), ['token' => $token]);
+        ];
     }
 
     /**

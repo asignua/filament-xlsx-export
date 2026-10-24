@@ -4,6 +4,7 @@ All notable changes to `asignua/filament-xlsx-export` are documented here.
 
 ## Unreleased
 
+- Feature: **queued (background) export.** `->queue()` / `->queue(connection:, queue:)` / `->queueWhenMoreThan($rows)` on `XlsxExportAction` and `XlsxExportBulkAction` build the file in a job (`ExportXlsxJob`) that rebuilds the same query from the component snapshot (filters, search, sort, bulk selection, columns, per-record gates), stores it on `queue.disk`, and sends the user a database notification with a signed, expiring, owner-checked download link. Failures and over-cap tables produce notifications too. `xlsx-export:prune` (scheduled daily) removes old files. Opt-in; tenancy panels and guests stay synchronous. New `queue.*` config and translations in all ten languages.
 - Tests: the refusal-notification assertions read Filament's notification mailbox (`Notification::assertNotified()`) instead of the `filament.notifications` session key, which Filament v5.10 no longer fills. No change in behaviour: refusals are still shown, and an expired, foreign or already spent link is still refused.
 
 ## v1.0.1 - 2026-10-08
