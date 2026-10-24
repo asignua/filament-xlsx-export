@@ -2,6 +2,10 @@
 
 All notable changes to `asignua/filament-xlsx-export` are documented here.
 
+## Unreleased
+
+- Tests: the refusal-notification assertions read Filament's notification mailbox (`Notification::assertNotified()`) instead of the `filament.notifications` session key, which Filament v5.10 no longer fills. No change in behaviour: refusals are still shown, and an expired, foreign or already spent link is still refused.
+
 ## v1.0.1 - 2026-10-08
 
 - Fix: the streaming route switches the default auth guard to the panel's guard (as Filament's `Authenticate` middleware does), so `auth()`, Gate checks and scopes written with `auth()` see the page's user; `streaming.middleware` only needs to start the session.

@@ -11,6 +11,7 @@ use Asignua\FilamentXlsxExport\Tests\TestCase;
 use Filament\Actions\ActionGroup;
 use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
+use Filament\Notifications\Notification;
 use Filament\PanelRegistry;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -564,12 +565,10 @@ class StreamedDownloadTest extends TestCase
     private function assertRefusedBackToThePanel(TestResponse $response, ?string $title = null): void
     {
         $response->assertRedirect();
-        $notifications = session('filament.notifications');
-        $this->assertIsArray($notifications);
-        $this->assertSame(
-            $title ?? __('filament-xlsx-export::xlsx-export.link_unusable'),
-            $notifications[array_key_last($notifications)]['title'] ?? null,
-        );
+
+        // Filament's own reader: v5.10 keeps flashed notifications in a cache-backed mailbox, older
+        // versions in the session; either way this pulls them (so consecutive calls see only new ones).
+        Notification::assertNotified($title ?? __('filament-xlsx-export::xlsx-export.link_unusable'));
     }
 
     public function test_twenty_thousand_rows_stream_with_flat_memory(): void
