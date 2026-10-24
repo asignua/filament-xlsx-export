@@ -416,4 +416,79 @@ class QueuedExportTest extends TestCase
         $this->assertCount(3, $this->storedBook()->column(0));
         Log::shouldHaveReceived('info')->withArgs(static fn (string $message): bool => str_contains($message, 'no database notifications'))->once();
     }
+
+    /**
+     * As close to a worker as a test gets: the job goes through the database queue, then every
+     * piece of request state is dropped before `queue:work` picks it up.
+     */
+    private function runWorkerOnFreshState(): void
+    {
+        auth()->forgetGuards();
+        Filament::setCurrentPanel(null);
+        session()->flush();
+        app()->setLocale('en');
+        // The request instance stays: a console worker has one (an empty one), and Laravel's guards need it.
+        $this->app->instance('request', \Illuminate\Http\Request::create('/'));
+        $this->app['auth']->shouldUse('web');
+
+        // Not --once: Filament's database notification is itself queued behind the export job.
+        $this->artisan('queue:work', ['--stop-when-empty' => true, '--tries' => 1])->assertSuccessful();
+    }
+
+    private function useDatabaseQueue(): void
+    {
+        config(['queue.default' => 'database', 'queue.connections.database' => ['driver' => 'database', 'table' => 'jobs', 'queue' => 'default', 'retry_after' => 90]]);
+        \Illuminate\Support\Facades\Schema::create('jobs', function (\Illuminate\Database\Schema\Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->string('queue')->index();
+            $table->longText('payload');
+            $table->unsignedTinyInteger('attempts');
+            $table->unsignedInteger('reserved_at')->nullable();
+            $table->unsignedInteger('available_at');
+            $table->unsignedInteger('created_at');
+        });
+    }
+
+    public function test_a_real_worker_builds_the_filtered_searched_file_from_a_clean_process_state(): void
+    {
+        $this->orders();
+        $this->makeOrder('Alpine', ['amount' => '1.00', 'status' => 'new']);
+        $this->useDatabaseQueue();
+        $owner = auth()->user();
+        OrdersTable::$header = static fn () => XlsxExportAction::make()->queue();
+
+        $this->click(
+            Livewire::test(OrdersTable::class)->filterTable('status', 'new')->searchTable('Al')->sortTable('amount', 'desc'),
+            ['name', 'amount'],
+        );
+        $this->assertSame(1, \Illuminate\Support\Facades\DB::table('jobs')->count());
+        $this->assertSame([], Storage::disk('local')->files('filament-xlsx-exports'));
+
+        $this->runWorkerOnFreshState();
+
+        $this->assertSame(0, \Illuminate\Support\Facades\DB::table('jobs')->count());
+        $this->assertSame(['Alpine'], array_slice($this->storedBook()->column(0), 0, 1));
+        $this->assertCount(1, $this->storedBook()->column(0));
+        $rows = $owner->notifications()->get();
+        $this->assertCount(1, $rows);
+        $this->assertSame(__('filament-xlsx-export::xlsx-export.ready_title'), $rows->first()->data['title']);
+    }
+
+    public function test_a_real_worker_builds_the_bulk_selection(): void
+    {
+        $this->orders();
+        $this->useDatabaseQueue();
+        $owner = auth()->user();
+        OrdersTable::$bulk = static fn () => XlsxExportBulkAction::make()->queue();
+        $ids = Order::query()->whereIn('name', ['Alpha', 'Charlie'])->pluck('id')->all();
+
+        Livewire::test(OrdersTable::class)
+            ->selectTableRecords($ids)
+            ->callAction(TestAction::make('xlsxExportBulk')->table()->bulk(), ['columns' => ['name']]);
+
+        $this->runWorkerOnFreshState();
+
+        $this->assertEqualsCanonicalizing(['Alpha', 'Charlie'], $this->storedBook()->column(0));
+        $this->assertCount(1, $owner->notifications()->get());
+    }
 }
