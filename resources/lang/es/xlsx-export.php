@@ -22,4 +22,6 @@ return [
     'failed_title' => 'La exportación falló',
     'failed_body' => 'No se pudo generar el archivo. Inténtelo de nuevo o acote los filtros.',
     'file_gone' => 'Esta exportación ya no está disponible. Vuelva a iniciarla.',
+    'too_many_exports_title' => 'Demasiadas exportaciones en curso',
+    'too_many_exports_body' => 'Espere a que terminen sus exportaciones actuales e inicie una nueva.',
 ];

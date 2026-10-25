@@ -22,4 +22,6 @@ return [
     'failed_title' => 'Dışa aktarma başarısız oldu',
     'failed_body' => 'Dosya oluşturulamadı. Tekrar deneyin veya filtreleri daraltın.',
     'file_gone' => 'Bu dışa aktarma artık mevcut değil. Yeniden başlatın.',
+    'too_many_exports_title' => 'Çok fazla dışa aktarma çalışıyor',
+    'too_many_exports_body' => 'Mevcut dışa aktarmalarınızın bitmesini bekleyin, sonra yenisini başlatın.',
 ];

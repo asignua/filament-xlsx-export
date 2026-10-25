@@ -296,9 +296,37 @@ waited produces the "too many rows" one.
 
 **Requirements.** The panel needs `->databaseNotifications()` and the `notifications` table; the user model must use
 `Notifiable`; a queue worker must run (with `QUEUE_CONNECTION=sync` the job runs inside the click, which works but is
-no faster). Without database notifications the file is still written, but nobody is told: the job logs one `info` line
-instead — so turn them on. Panels with tenancy and guests stay synchronous (the job has no tenant and nobody to
-notify), exactly like they never stream.
+no faster). Where the export cannot be queued it **silently stays synchronous** (and then streams or downloads as
+usual): a table outside any panel, a panel without database notifications, a panel with tenancy (the job has no
+tenant), a guest, and `queue.enabled = false`.
+
+**The worker is not the panel.** The job restores the clicking user, the guard, the panel and the locale for the
+duration of the export and puts the worker back as it found it afterwards. It re-checks `canAccessPanel()` and that the
+action is still visible, and drops the export if either fails (the download route re-checks `canAccessPanel()` too).
+But **the panel's middleware does not run in a worker**: a scope or setting your own panel middleware applies per request
+(a tenant-like filter, a feature flag, a timezone) is missing. Re-apply it with `queue.before`, a *callable* (so the config
+stays cacheable) run in the worker right before the export:
+
+```php
+// config/filament-xlsx-export.php
+'queue' => ['before' => [\App\Support\ExportScope::class, 'apply']],   // apply(User $user, ?Panel $panel): void
+```
+
+**Timeouts.** `queue.timeout` (default 600 s) is capped at the connection's `retry_after` minus 10 s. With one try per
+job, a job that outlives `retry_after` is taken by a second worker and failed while the first is still writing, and the
+user would see "failed" and then "ready": the cap turns that into one clean failure. For exports that take longer, raise
+both `retry_after` and `queue.timeout`. A worker killed mid-export leaves a temporary file in
+`storage/framework/cache/filament-xlsx-export/`; `xlsx-export:prune` removes the stale ones.
+
+**Deploys.** A job waiting in the queue carries the component snapshot, signed with `APP_KEY` and bound to the code of that
+release. If a deploy changes the key or the component in between, the snapshot no longer verifies: the job fails cleanly
+(a "failed" notification) and the user starts the export again.
+
+**Limits.** At most `queue.max_per_user` unfinished exports per user (default 2, `0` = no limit); another click gets a
+warning toast. A slot is freed when the job finishes or fails, or after its timeout.
+
+**Links.** The link is signed for the domain the click came from (a panel on its own domain works), not for the
+worker's `APP_URL`.
 
 **How the query reaches the job — and why not by serializing it.** A query cannot be shipped soundly: eager loads,
 casts and the table's columns are closures, and replaying SQL plus bindings would lose them. Filament core's own
@@ -323,11 +351,11 @@ link is not single-use (a notification can be clicked twice) and lives `queue.re
 
 **Pruning.** `php artisan xlsx-export:prune [--hours=24]` deletes older files; the plugin schedules it daily at
 `queue.schedule.time` (03:50) while `queue.schedule.enabled` is true — the app's scheduler (`schedule:run`) must run.
-`--hours=0` deletes nothing.
+`--hours=0` deletes nothing, and so does `queue.retention_hours = 0` (files are kept for ever; links then live 30 days).
 
 Config (`queue.*`): `enabled` (false makes every queued action synchronous), `connection`, `queue`, `disk`,
-`directory`, `retention_hours`, `hard_cap` (rows, default 1 000 000; also `->rowLimit(n)`, the lower holds), `timeout`
-(job, seconds), `register_route`, `path`, `middleware`, `schedule.enabled`, `schedule.time`.
+`directory`, `retention_hours` (0 = never prune), `hard_cap` (rows, default 1 000 000; also `->rowLimit(n)`, the lower holds), `timeout`
+(job, seconds), `max_per_user`, `before`, `register_route`, `path`, `middleware`, `schedule.enabled`, `schedule.time`.
 
 ## Typed cells for core exporters
 

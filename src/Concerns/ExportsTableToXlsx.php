@@ -420,7 +420,7 @@ trait ExportsTableToXlsx
     /**
      * Whether this click becomes a background job: opted in (and above the threshold, when there is
      * one), the feature is on, and the panel can carry the job — no tenancy (the job has no tenant),
-     * a logged-in user (the file and the notification belong to somebody).
+     * a logged-in user (the file and the notification belong to somebody), and database notifications.
      */
     protected function shouldQueueXlsx(int $count): bool
     {
@@ -432,7 +432,14 @@ trait ExportsTableToXlsx
             return false;
         }
 
-        return StreamedExports::supportsPanel(Filament::getCurrentPanel()) && $this->hasStreamingUser();
+        $panel = Filament::getCurrentPanel();
+
+        // The user is told about the file through the panel's database notifications; without them
+        // (or without a panel) "you will get a notification" would be a lie, so stay synchronous.
+        return $panel !== null
+            && $panel->hasDatabaseNotifications()
+            && StreamedExports::supportsPanel($panel)
+            && $this->hasStreamingUser();
     }
 
     /**
@@ -455,8 +462,20 @@ trait ExportsTableToXlsx
             return null;
         }
 
+        $payload = StreamedExports::capture($livewire, (string) $this->getName(), $this->isBulkExport(), $data, $this->belongsToXlsxTable());
+
+        if (!QueuedExports::hasFreeSlot($payload)) {
+            Notification::make()
+                ->title(__('filament-xlsx-export::xlsx-export.too_many_exports_title'))
+                ->body(__('filament-xlsx-export::xlsx-export.too_many_exports_body'))
+                ->warning()
+                ->send();
+
+            return null;
+        }
+
         QueuedExports::dispatch(
-            StreamedExports::capture($livewire, (string) $this->getName(), $this->isBulkExport(), $data, $this->belongsToXlsxTable()),
+            $payload,
             $this->xlsxQueueConnection,
             $this->xlsxQueueName,
         );

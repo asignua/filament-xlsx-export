@@ -32,6 +32,8 @@ class OrdersTable extends Component implements HasActions, HasSchemas, HasTable
 
     public static ?Closure $bulk = null;
 
+    public static bool $visible = true;
+
     /** `checkIfRecordIsSelectableUsing()` for a test. */
     public static ?Closure $selectable = null;
 

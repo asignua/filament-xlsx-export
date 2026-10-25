@@ -28,8 +28,16 @@ class PruneCommand extends Command
             return self::SUCCESS;
         }
 
-        $disk = QueuedExports::disk();
         $cutoff = now()->subHours($hours)->getTimestamp();
+
+        // Half-written files of workers that were killed mid-export.
+        foreach (glob(QueuedExports::temporaryDirectory().'/xlsx-export-*') ?: [] as $leftover) {
+            if (is_file($leftover) && filemtime($leftover) < $cutoff) {
+                @unlink($leftover);
+            }
+        }
+
+        $disk = QueuedExports::disk();
         $deleted = 0;
 
         foreach ($disk->files(QueuedExports::directory()) as $file) {

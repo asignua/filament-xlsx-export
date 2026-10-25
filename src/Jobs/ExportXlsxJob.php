@@ -8,6 +8,7 @@ use Asignua\FilamentXlsxExport\Support\ExportTooLarge;
 use Asignua\FilamentXlsxExport\Support\QueuedExports;
 use Asignua\FilamentXlsxExport\Support\StreamedExports;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -40,15 +41,22 @@ final class ExportXlsxJob implements ShouldQueue
      */
     public function __construct(public readonly string $id, public readonly array $payload)
     {
-        $this->timeout = max(60, (int) config('filament-xlsx-export.queue.timeout', 3600));
+        $this->timeout = QueuedExports::timeoutFor(null);
     }
 
     public function handle(): void
     {
-        $user = QueuedExports::actAs($this->payload);
+        try {
+            QueuedExports::within($this->payload, $this->build(...));
+        } finally {
+            QueuedExports::release($this->payload, $this->id);
+        }
+    }
 
+    private function build(?Authenticatable $user): void
+    {
         if ($user === null) {
-            Log::warning("filament-xlsx-export: export {$this->id} dropped: its user or panel no longer exists.");
+            Log::warning("filament-xlsx-export: export {$this->id} dropped: its user or panel is gone, or the user can no longer open the panel.");
 
             return;
         }
@@ -60,6 +68,12 @@ final class ExportXlsxJob implements ShouldQueue
             throw new RuntimeException("The export action \"{$this->string('action')}\" was not found on the rehydrated component.");
         }
 
+        if (method_exists($action, 'isVisible') && !$action->isVisible()) {
+            Log::warning("filament-xlsx-export: export {$this->id} dropped: the action is no longer visible to the user.");
+
+            return;
+        }
+
         $query = ($this->payload['bulk'] ?? false)
             ? $component->getSelectedTableRecordsQuery()
             : $component->getFilteredSortedTableQuery();
@@ -68,11 +82,8 @@ final class ExportXlsxJob implements ShouldQueue
             throw new RuntimeException('The rehydrated table has no query.');
         }
 
-        $temporary = tempnam(sys_get_temp_dir(), 'xlsx-export-');
-
-        if ($temporary === false) {
-            throw new RuntimeException('Cannot create a temporary file for the export.');
-        }
+        // Inside storage/, where `xlsx-export:prune` also looks: a killed worker cannot clean up after itself.
+        $temporary = QueuedExports::temporaryFile();
 
         try {
             /** @var array<string, mixed> $data */
@@ -89,19 +100,21 @@ final class ExportXlsxJob implements ShouldQueue
             @unlink($temporary);
         }
 
-        QueuedExports::notifyReady($user, $this->id, $result['file_name'], $result['rows']);
+        $root = $this->payload['root'] ?? null;
+
+        QueuedExports::notifyReady($user, $this->id, $result['file_name'], $result['rows'], is_string($root) ? $root : null);
     }
 
     public function failed(Throwable $exception): void
     {
-        $disk = QueuedExports::disk();
-        $disk->delete([QueuedExports::filePath($this->id), QueuedExports::metaPath($this->id)]);
+        QueuedExports::release($this->payload, $this->id);
+        QueuedExports::disk()->delete([QueuedExports::filePath($this->id), QueuedExports::metaPath($this->id)]);
 
-        $user = QueuedExports::actAs($this->payload);
-
-        if ($user !== null) {
-            QueuedExports::notifyFailed($user, $this->id);
-        }
+        QueuedExports::within($this->payload, function (?Authenticatable $user): void {
+            if ($user !== null) {
+                QueuedExports::notifyFailed($user, $this->id);
+            }
+        });
     }
 
     /**

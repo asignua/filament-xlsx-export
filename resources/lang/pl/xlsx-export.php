@@ -22,4 +22,6 @@ return [
     'failed_title' => 'Eksport nie powiódł się',
     'failed_body' => 'Nie udało się utworzyć pliku. Spróbuj ponownie lub zawęź filtry.',
     'file_gone' => 'Ten eksport nie jest już dostępny. Uruchom go ponownie.',
+    'too_many_exports_title' => 'Zbyt wiele trwających eksportów',
+    'too_many_exports_body' => 'Poczekaj na zakończenie bieżących eksportów, a potem uruchom nowy.',
 ];

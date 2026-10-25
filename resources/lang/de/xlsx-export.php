@@ -22,4 +22,6 @@ return [
     'failed_title' => 'Export fehlgeschlagen',
     'failed_body' => 'Die Datei konnte nicht erstellt werden. Versuchen Sie es erneut oder grenzen Sie die Filter ein.',
     'file_gone' => 'Dieser Export ist nicht mehr verfügbar. Starten Sie ihn erneut.',
+    'too_many_exports_title' => 'Zu viele laufende Exporte',
+    'too_many_exports_body' => 'Warten Sie, bis Ihre aktuellen Exporte fertig sind, und starten Sie dann einen neuen.',
 ];

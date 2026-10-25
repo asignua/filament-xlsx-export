@@ -56,7 +56,10 @@ return [
     | app's). The file goes to `disk` / `directory`; it and its link live `retention_hours`, then
     | `xlsx-export:prune` deletes it (scheduled daily at `schedule.time` while `schedule.enabled`).
     | `hard_cap` is the row limit of a queued export (null = none). `timeout` is the job's, in
-    | seconds. The route needs a session (`middleware`); its signed URL is built from APP_URL.
+    | seconds, and is kept 10 s under the connection's `retry_after` (raise `retry_after` for big
+    | exports). `retention_hours` = 0 never prunes (links then live 30 days). `max_per_user` caps
+    | unfinished exports per user (0 = no cap). `before` is a callable `fn (User $user, ?Panel $panel)`
+    | run in the worker before each export: panel middleware does not run there. The route needs a session (`middleware`); its signed URL is built from APP_URL.
     |
     */
     'queue' => [
@@ -67,7 +70,9 @@ return [
         'directory' => 'filament-xlsx-exports',
         'retention_hours' => 24,
         'hard_cap' => 1_000_000,
-        'timeout' => 3600,
+        'timeout' => 600,
+        'max_per_user' => 2,
+        'before' => null,
         'register_route' => true,
         'path' => 'filament-xlsx-export/file/{id}',
         'middleware' => ['web'],

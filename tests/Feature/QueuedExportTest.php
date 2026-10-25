@@ -14,7 +14,6 @@ use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
 use Filament\Notifications\Notification;
 use Illuminate\Support\Facades\Bus;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
 use Livewire\Features\SupportTesting\Testable;
@@ -26,6 +25,14 @@ use Workbench\App\Models\User;
 
 class QueuedExportTest extends TestCase
 {
+    /** @var list<array{int|string, string|null}> */
+    public static array $hookCalls = [];
+
+    public static function hook(object $user, ?object $panel): void
+    {
+        self::$hookCalls[] = [$user->getKey(), $panel?->getId()];
+    }
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -35,6 +42,10 @@ class QueuedExportTest extends TestCase
 
     protected function tearDown(): void
     {
+        User::$denyPanel = false;
+        self::$hookCalls = [];
+        OrdersTable::$visible = true;
+
         OrdersTable::$header = null;
         OrdersTable::$bulk = null;
         OrdersTable::$selectable = null;
@@ -403,92 +414,226 @@ class QueuedExportTest extends TestCase
         $this->assertSame([], Storage::disk('local')->files('filament-xlsx-exports'));
     }
 
-    public function test_a_panel_without_database_notifications_still_writes_the_file_and_logs(): void
+    public function test_a_panel_without_database_notifications_stays_synchronous(): void
     {
         $this->orders();
-        Log::spy();
+        Bus::fake([ExportXlsxJob::class]);
         Filament::getPanel('admin')->databaseNotifications(false);
         OrdersTable::$header = static fn () => XlsxExportAction::make()->queue();
 
-        $this->click(Livewire::test(OrdersTable::class), ['name']);
+        $component = $this->click(Livewire::test(OrdersTable::class), ['name']);
 
-        $this->assertCount(0, auth()->user()->notifications()->get());
-        $this->assertCount(3, $this->storedBook()->column(0));
-        Log::shouldHaveReceived('info')->withArgs(static fn (string $message): bool => str_contains($message, 'no database notifications'))->once();
+        Bus::assertNothingDispatched();
+        $this->assertArrayHasKey('download', $component->effects);
     }
 
-    /**
-     * As close to a worker as a test gets: the job goes through the database queue, then every
-     * piece of request state is dropped before `queue:work` picks it up.
-     */
-    private function runWorkerOnFreshState(): void
-    {
-        auth()->forgetGuards();
-        Filament::setCurrentPanel(null);
-        session()->flush();
-        app()->setLocale('en');
-        // The request instance stays: a console worker has one (an empty one), and Laravel's guards need it.
-        $this->app->instance('request', \Illuminate\Http\Request::create('/'));
-        $this->app['auth']->shouldUse('web');
-
-        // Not --once: Filament's database notification is itself queued behind the export job.
-        $this->artisan('queue:work', ['--stop-when-empty' => true, '--tries' => 1])->assertSuccessful();
-    }
-
-    private function useDatabaseQueue(): void
-    {
-        config(['queue.default' => 'database', 'queue.connections.database' => ['driver' => 'database', 'table' => 'jobs', 'queue' => 'default', 'retry_after' => 90]]);
-        \Illuminate\Support\Facades\Schema::create('jobs', function (\Illuminate\Database\Schema\Blueprint $table): void {
-            $table->bigIncrements('id');
-            $table->string('queue')->index();
-            $table->longText('payload');
-            $table->unsignedTinyInteger('attempts');
-            $table->unsignedInteger('reserved_at')->nullable();
-            $table->unsignedInteger('available_at');
-            $table->unsignedInteger('created_at');
-        });
-    }
-
-    public function test_a_real_worker_builds_the_filtered_searched_file_from_a_clean_process_state(): void
+    public function test_a_table_outside_any_panel_stays_synchronous(): void
     {
         $this->orders();
-        $this->makeOrder('Alpine', ['amount' => '1.00', 'status' => 'new']);
-        $this->useDatabaseQueue();
-        $owner = auth()->user();
+        Bus::fake([ExportXlsxJob::class]);
+        Filament::setCurrentPanel(null);
         OrdersTable::$header = static fn () => XlsxExportAction::make()->queue();
 
-        $this->click(
-            Livewire::test(OrdersTable::class)->filterTable('status', 'new')->searchTable('Al')->sortTable('amount', 'desc'),
-            ['name', 'amount'],
-        );
-        $this->assertSame(1, \Illuminate\Support\Facades\DB::table('jobs')->count());
-        $this->assertSame([], Storage::disk('local')->files('filament-xlsx-exports'));
+        $component = $this->click(Livewire::test(OrdersTable::class), ['name']);
 
-        $this->runWorkerOnFreshState();
-
-        $this->assertSame(0, \Illuminate\Support\Facades\DB::table('jobs')->count());
-        $this->assertSame(['Alpine'], array_slice($this->storedBook()->column(0), 0, 1));
-        $this->assertCount(1, $this->storedBook()->column(0));
-        $rows = $owner->notifications()->get();
-        $this->assertCount(1, $rows);
-        $this->assertSame(__('filament-xlsx-export::xlsx-export.ready_title'), $rows->first()->data['title']);
+        Bus::assertNothingDispatched();
+        $this->assertArrayHasKey('download', $component->effects);
     }
 
-    public function test_a_real_worker_builds_the_bulk_selection(): void
+    private function queuedJob(?string $locale = null): ExportXlsxJob
     {
         $this->orders();
-        $this->useDatabaseQueue();
+        Bus::fake([ExportXlsxJob::class]);
+        OrdersTable::$header = static fn () => XlsxExportAction::make()->queue();
+
+        if ($locale !== null) {
+            app()->setLocale($locale);
+        }
+
+        $this->click(Livewire::test(OrdersTable::class), ['name']);
+
+        /** @var ExportXlsxJob */
+        return Bus::dispatched(ExportXlsxJob::class)->first();
+    }
+
+    public function test_the_job_leaves_no_user_locale_or_panel_behind_for_the_next_job(): void
+    {
+        $job = $this->queuedJob('uk');
         $owner = auth()->user();
-        OrdersTable::$bulk = static fn () => XlsxExportBulkAction::make()->queue();
-        $ids = Order::query()->whereIn('name', ['Alpha', 'Charlie'])->pluck('id')->all();
 
-        Livewire::test(OrdersTable::class)
-            ->selectTableRecords($ids)
-            ->callAction(TestAction::make('xlsxExportBulk')->table()->bulk(), ['columns' => ['name']]);
+        // The worker process: nobody logged in, default locale, no panel.
+        auth()->forgetGuards();
+        Filament::setCurrentPanel(null);
+        app()->setLocale('en');
 
-        $this->runWorkerOnFreshState();
+        $job->handle();
 
-        $this->assertEqualsCanonicalizing(['Alpha', 'Charlie'], $this->storedBook()->column(0));
+        $this->assertFalse(auth()->check(), 'The exporter stayed logged in on the worker.');
+        $this->assertSame('en', app()->getLocale());
+        $this->assertNull(Filament::getCurrentPanel());
+        $this->assertSame('web', \Illuminate\Support\Facades\Auth::getDefaultDriver());
         $this->assertCount(1, $owner->notifications()->get());
+    }
+
+    public function test_a_failed_job_also_restores_the_worker_state(): void
+    {
+        $job = $this->queuedJob('uk');
+        auth()->forgetGuards();
+        Filament::setCurrentPanel(null);
+        app()->setLocale('en');
+
+        $job->failed(new \RuntimeException('x'));
+
+        $this->assertFalse(auth()->check());
+        $this->assertSame('en', app()->getLocale());
+        $this->assertNull(Filament::getCurrentPanel());
+    }
+
+    public function test_the_job_timeout_stays_below_the_connections_retry_after(): void
+    {
+        $this->orders();
+        Bus::fake([ExportXlsxJob::class]);
+        config([
+            'filament-xlsx-export.queue.timeout' => 3600,
+            'queue.connections.database' => ['driver' => 'database', 'table' => 'jobs', 'queue' => 'default', 'retry_after' => 90],
+        ]);
+        OrdersTable::$header = static fn () => XlsxExportAction::make()->queue(connection: 'database');
+        $this->click(Livewire::test(OrdersTable::class), ['name']);
+
+        /** @var ExportXlsxJob $job */
+        $job = Bus::dispatched(ExportXlsxJob::class)->first();
+        $this->assertLessThan(90, $job->timeout);
+    }
+
+    public function test_the_default_timeout_is_ten_minutes(): void
+    {
+        $this->assertSame(600, (require dirname(__DIR__, 2).'/config/filament-xlsx-export.php')['queue']['timeout']);
+    }
+
+    public function test_prune_removes_stale_temporary_files_of_killed_workers(): void
+    {
+        $dir = QueuedExports::temporaryDirectory();
+        @mkdir($dir, 0775, true);
+        touch($dir.'/xlsx-export-old.tmp', time() - 30 * 3600);
+        touch($dir.'/xlsx-export-new.tmp');
+
+        $this->artisan('xlsx-export:prune')->assertSuccessful();
+
+        $this->assertFileDoesNotExist($dir.'/xlsx-export-old.tmp');
+        $this->assertFileExists($dir.'/xlsx-export-new.tmp');
+    }
+
+    public function test_a_job_hook_runs_for_the_user_and_panel_before_the_export(): void
+    {
+        config(['filament-xlsx-export.queue.before' => [self::class, 'hook']]);
+        $job = $this->queuedJob();
+
+        $job->handle();
+
+        $this->assertSame([[auth()->id(), 'admin']], self::$hookCalls);
+    }
+
+    public function test_a_user_who_lost_panel_access_gets_no_export(): void
+    {
+        $job = $this->queuedJob();
+        User::$denyPanel = true;
+
+        $job->handle();
+
+        $this->assertSame([], Storage::disk('local')->files('filament-xlsx-exports'));
+        $this->assertCount(0, auth()->user()->notifications()->get());
+    }
+
+    public function test_an_action_that_is_no_longer_visible_exports_nothing(): void
+    {
+        $this->orders();
+        Bus::fake([ExportXlsxJob::class]);
+        OrdersTable::$header = static fn () => XlsxExportAction::make()->queue()->visible(static fn (): bool => OrdersTable::$visible);
+        $this->click(Livewire::test(OrdersTable::class), ['name']);
+        /** @var ExportXlsxJob $job */
+        $job = Bus::dispatched(ExportXlsxJob::class)->first();
+
+        OrdersTable::$visible = false;
+        $job->handle();
+
+        $this->assertSame([], Storage::disk('local')->files('filament-xlsx-exports'));
+    }
+
+    public function test_the_download_route_rechecks_panel_access(): void
+    {
+        $url = $this->link();
+        User::$denyPanel = true;
+
+        $this->assertRefused($this->get($url));
+    }
+
+    public function test_the_link_is_signed_for_the_domain_the_click_came_from(): void
+    {
+        $this->orders();
+        Bus::fake([ExportXlsxJob::class]);
+        OrdersTable::$header = static fn () => XlsxExportAction::make()->queue();
+        $this->click(Livewire::test(OrdersTable::class), ['name']);
+        /** @var ExportXlsxJob $job */
+        $job = Bus::dispatched(ExportXlsxJob::class)->first();
+
+        // The worker's APP_URL is something else; the click came from the panel's own domain.
+        $payload = [...$job->payload, 'root' => 'https://panel.example.test'];
+        (new ExportXlsxJob($job->id, $payload))->handle();
+
+        $url = $this->notification()['actions'][0]['url'];
+        $this->assertStringStartsWith('https://panel.example.test/', $url);
+        $this->assertStringNotContainsString('panel.example.test', url('/'), 'The forced root leaked out of the job.');
+        $this->get($url)->assertOk();
+    }
+
+    public function test_at_most_n_exports_run_per_user_at_once(): void
+    {
+        $this->orders();
+        Bus::fake([ExportXlsxJob::class]);
+        config(['filament-xlsx-export.queue.max_per_user' => 1]);
+        OrdersTable::$header = static fn () => XlsxExportAction::make()->queue();
+
+        $this->click(Livewire::test(OrdersTable::class), ['name']);
+        $second = $this->click(Livewire::test(OrdersTable::class), ['name']);
+
+        Bus::assertDispatchedTimes(ExportXlsxJob::class, 1);
+        Notification::assertNotified(__('filament-xlsx-export::xlsx-export.too_many_exports_title'));
+        $this->assertArrayNotHasKey('download', $second->effects);
+
+        // The first one finishes: the slot is free again.
+        Bus::dispatched(ExportXlsxJob::class)->first()->handle();
+        $this->click(Livewire::test(OrdersTable::class), ['name']);
+        Bus::assertDispatchedTimes(ExportXlsxJob::class, 2);
+    }
+
+    public function test_a_failed_job_frees_the_users_slot_too(): void
+    {
+        $this->orders();
+        Bus::fake([ExportXlsxJob::class]);
+        config(['filament-xlsx-export.queue.max_per_user' => 1]);
+        OrdersTable::$header = static fn () => XlsxExportAction::make()->queue();
+        $this->click(Livewire::test(OrdersTable::class), ['name']);
+
+        Bus::dispatched(ExportXlsxJob::class)->first()->failed(new \RuntimeException('x'));
+        $this->click(Livewire::test(OrdersTable::class), ['name']);
+
+        Bus::assertDispatchedTimes(ExportXlsxJob::class, 2);
+    }
+
+    public function test_zero_retention_never_prunes_and_links_live_thirty_days(): void
+    {
+        config(['filament-xlsx-export.queue.retention_hours' => 0]);
+        $disk = Storage::disk('local');
+        $disk->put('filament-xlsx-exports/old.xlsx', 'x');
+        touch($disk->path('filament-xlsx-exports/old.xlsx'), time() - 90 * 24 * 3600);
+
+        $this->artisan('xlsx-export:prune')->assertSuccessful();
+        $this->assertCount(1, $disk->files('filament-xlsx-exports'));
+
+        $url = $this->link();
+        $this->travel(29)->days();
+        $this->get($url)->assertOk();
+        $this->travel(2)->days();
+        $this->assertRefused($this->get($url), __('filament-xlsx-export::xlsx-export.link_expired'));
     }
 }

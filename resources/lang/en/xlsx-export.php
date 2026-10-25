@@ -22,4 +22,6 @@ return [
     'failed_title' => 'The export failed',
     'failed_body' => 'The file could not be built. Try again, or narrow the filters.',
     'file_gone' => 'This export is no longer available. Start it again.',
+    'too_many_exports_title' => 'Too many exports running',
+    'too_many_exports_body' => 'Wait for your current exports to finish, then start a new one.',
 ];

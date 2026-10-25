@@ -22,4 +22,6 @@ return [
     'failed_title' => 'Export mislukt',
     'failed_body' => 'Het bestand kon niet worden gemaakt. Probeer het opnieuw of beperk de filters.',
     'file_gone' => 'Deze export is niet meer beschikbaar. Start hem opnieuw.',
+    'too_many_exports_title' => 'Te veel exports bezig',
+    'too_many_exports_body' => 'Wacht tot je huidige exports klaar zijn en start dan een nieuwe.',
 ];

@@ -7,6 +7,7 @@ namespace Asignua\FilamentXlsxExport\Http;
 use Asignua\FilamentXlsxExport\Support\QueuedExports;
 use Asignua\FilamentXlsxExport\XlsxExporter;
 use Filament\Facades\Filament;
+use Filament\Models\Contracts\FilamentUser;
 use Filament\Notifications\Notification;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -41,7 +42,7 @@ final class QueuedDownloadController
 
         // Somebody else (or a guest) gets the same answer as for a missing file: the link says
         // nothing about who the export belongs to.
-        if (!$this->isOwner($meta)) {
+        if (!$this->isOwner($meta) || !$this->mayOpenPanel($meta)) {
             return $this->refuse($meta['panel'], 'link_unusable');
         }
 
@@ -64,6 +65,26 @@ final class QueuedDownloadController
         }
 
         return $user !== null && (string) $user === (string) $meta['user'];
+    }
+
+    /**
+     * The link outlives the click by hours: somebody who lost the panel meanwhile gets nothing.
+     *
+     * @param array{guard: string|null, panel: string|null} $meta
+     */
+    private function mayOpenPanel(array $meta): bool
+    {
+        if ($meta['panel'] === null) {
+            return true;
+        }
+
+        try {
+            $user = Auth::guard($meta['guard'])->user();
+
+            return !$user instanceof FilamentUser || $user->canAccessPanel(Filament::getPanel($meta['panel']));
+        } catch (Throwable) {
+            return false;
+        }
     }
 
     private function refuse(?string $panelId, string $message): RedirectResponse

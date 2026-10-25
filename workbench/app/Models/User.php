@@ -23,6 +23,9 @@ class User extends Authenticatable implements FilamentUser
 
     use Notifiable;
 
+    /** A test switch: the user loses panel access. */
+    public static bool $denyPanel = false;
+
     protected $guarded = [];
 
     protected $hidden = ['password', 'remember_token'];
@@ -34,7 +37,7 @@ class User extends Authenticatable implements FilamentUser
 
     public function canAccessPanel(Panel $panel): bool
     {
-        return true;
+        return !static::$denyPanel;
     }
 
     protected static function newFactory(): UserFactory
