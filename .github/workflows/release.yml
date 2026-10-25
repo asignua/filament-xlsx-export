@@ -1,0 +1,44 @@
+name: release
+
+# A pushed tag vX.Y.Z becomes a GitHub release whose notes are the "## vX.Y.Z" (or "## X.Y.Z") section of
+# CHANGELOG.md. For a tag that already exists: Actions > release > Run workflow, tag = vX.Y.Z.
+# Re-running for a tag that already has a release changes nothing.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag, e.g. v1.2.0'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+      - name: Notes from CHANGELOG.md
+        run: |
+          version="${TAG#v}"
+          awk -v v="$version" '
+            /^## / { if (found) exit; h = $2; sub(/^v/, "", h); if (h == v) { found = 1; next } }
+            found { print }
+          ' CHANGELOG.md | sed -e '/./,$!d' > notes.md
+          if [ ! -s notes.md ]; then echo "See [CHANGELOG.md](CHANGELOG.md)." > notes.md; fi
+          cat notes.md
+      - name: Create the release
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "Release $TAG already exists."
+          else
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TAG" --notes-file notes.md --verify-tag
+          fi
