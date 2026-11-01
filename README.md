@@ -433,6 +433,15 @@ resource. Tests read the generated workbook back from its XML and assert cell ty
 
 See [CHANGELOG.md](https://github.com/asignua/filament-xlsx-export/blob/main/CHANGELOG.md).
 
+## More plugins by asign
+
+- [Spreadsheet Grid](https://filamentphp.com/plugins/asign-spreadsheet-grid) — editable spreadsheet-style table
+- [Row Layout](https://filamentphp.com/plugins/asign-row-layout) — column manager for tables
+- [Group Summaries](https://filamentphp.com/plugins/asign-group-summaries) — summaries in table group headers
+- [Themes](https://filamentphp.com/plugins/asign-themes) — per-user and per-panel colour themes
+
+All plugins: <https://filamentphp.com/plugins?q=asign>
+
 ## License
 
 The MIT License (MIT). See [LICENSE.md](https://github.com/asignua/filament-xlsx-export/blob/main/LICENSE.md).
