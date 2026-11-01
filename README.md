@@ -435,6 +435,7 @@ See [CHANGELOG.md](https://github.com/asignua/filament-xlsx-export/blob/main/CHA
 
 ## More plugins by asign
 
+- [XLSX Import](https://github.com/asignua/filament-xlsx-import) — the way back: import `.xlsx`/`.ods`/`.csv` with column mapping, dry run and queue
 - [Spreadsheet Grid](https://filamentphp.com/plugins/asign-spreadsheet-grid) — editable spreadsheet-style table
 - [Row Layout](https://filamentphp.com/plugins/asign-row-layout) — column manager for tables
 - [Group Summaries](https://filamentphp.com/plugins/asign-group-summaries) — summaries in table group headers
