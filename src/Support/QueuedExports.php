@@ -36,6 +36,38 @@ final class QueuedExports
 
     public const string ID_PATTERN = '[0-9a-z]{26}';
 
+    /** @var array<string, Closure(Authenticatable, array<string, mixed>): bool> */
+    private static array $downloadChecks = [];
+
+    /**
+     * For a plugin that stores exports of its own (a scheduled report): the download route asks
+     * `$check($user, $scopeData)` before it streams a file stored with `scope = $scope` in its payload
+     * (`scope_data` is plain data the plugin put there). A scoped file whose scope has no check
+     * registered is refused: the route cannot know what it would be giving away.
+     *
+     * @param Closure(Authenticatable, array<string, mixed>): bool $check
+     */
+    public static function checkDownloadsOf(string $scope, Closure $check): void
+    {
+        self::$downloadChecks[$scope] = $check;
+    }
+
+    /**
+     * @param array{scope?: string|null, scope_data?: array<string, mixed>|null} $meta
+     */
+    public static function mayDownload(array $meta, Authenticatable $user): bool
+    {
+        $scope = $meta['scope'] ?? null;
+
+        if (!is_string($scope) || $scope === '') {
+            return true;
+        }
+
+        $check = self::$downloadChecks[$scope] ?? null;
+
+        return $check !== null && $check($user, is_array($meta['scope_data'] ?? null) ? $meta['scope_data'] : []) === true;
+    }
+
     /**
      * @param array<string, mixed> $payload `StreamedExports::capture()`
      */
@@ -324,17 +356,23 @@ final class QueuedExports
             fclose($stream);
         }
 
-        $disk->put(self::metaPath($id), (string) json_encode([
+        $keep = isset($payload['keep_hours']) && is_numeric($payload['keep_hours']) && (int) $payload['keep_hours'] > 0 ? (int) $payload['keep_hours'] : null;
+
+        $disk->put(self::metaPath($id), (string) json_encode(array_filter([
             'user' => $payload['user'] ?? null,
             'guard' => $payload['guard'] ?? null,
             'panel' => $payload['panel'] ?? null,
             'file_name' => $fileName,
             'rows' => $rows,
-        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+            // Set by a plugin that stores exports of its own: who may still download, and until when whatever the retention says.
+            'scope' => is_string($payload['scope'] ?? null) ? $payload['scope'] : null,
+            'scope_data' => is_array($payload['scope_data'] ?? null) ? $payload['scope_data'] : null,
+            'keep_until' => $keep === null ? null : now()->getTimestamp() + $keep * 3600,
+        ], static fn (mixed $value, string $key): bool => $value !== null || in_array($key, ['user', 'guard', 'panel'], true), ARRAY_FILTER_USE_BOTH), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
     }
 
     /**
-     * @return array{user: int|string|null, guard: string|null, panel: string|null, file_name: string, rows: int}|null
+     * @return array{user: int|string|null, guard: string|null, panel: string|null, file_name: string, rows: int, scope?: string, scope_data?: array<string, mixed>, keep_until?: int}|null
      */
     public static function meta(string $id): ?array
     {
@@ -350,11 +388,11 @@ final class QueuedExports
             return null;
         }
 
-        /** @var array{user: int|string|null, guard: string|null, panel: string|null, file_name: string, rows: int} */
+        /** @var array{user: int|string|null, guard: string|null, panel: string|null, file_name: string, rows: int, scope?: string, scope_data?: array<string, mixed>, keep_until?: int} */
         return $meta;
     }
 
-    public static function url(string $id, ?string $root = null): string
+    public static function url(string $id, ?string $root = null, ?int $hours = null): string
     {
         // A worker has no request, so the URL generator falls back to APP_URL; a panel on its own
         // domain needs the link signed for that domain. The forced root and scheme are undone straight away.
@@ -364,7 +402,7 @@ final class QueuedExports
         }
 
         try {
-            return URL::temporarySignedRoute(self::ROUTE, now()->addHours(self::linkHours()), ['id' => $id]);
+            return URL::temporarySignedRoute(self::ROUTE, now()->addHours($hours !== null && $hours > 0 ? $hours : self::linkHours()), ['id' => $id]);
         } finally {
             if ($root !== null && $root !== '') {
                 URL::forceRootUrl(null);

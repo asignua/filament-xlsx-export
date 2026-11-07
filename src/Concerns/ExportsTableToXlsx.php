@@ -20,6 +20,7 @@ use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Contracts\HasTable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Query\Builder as BaseBuilder;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use Livewire\Component;
@@ -552,7 +553,13 @@ trait ExportsTableToXlsx
     protected function scopedQuery(HasTable $livewire, Builder $query, array $data): Builder
     {
         if ($this->xlsxQueryUsing instanceof Closure) {
-            $query = $this->evaluate($this->xlsxQueryUsing, ['query' => $query, 'data' => $data, 'livewire' => $livewire]) ?? $query;
+            // By type as well as by name: a closure that types its parameter `Builder $scoped` would otherwise be
+            // handed the table's "selected records" query by Filament, which a header action does not have.
+            $query = $this->evaluate(
+                $this->xlsxQueryUsing,
+                ['query' => $query, 'data' => $data, 'livewire' => $livewire],
+                [Builder::class => $query, BaseBuilder::class => $query->getQuery(), HasTable::class => $livewire, $livewire::class => $livewire],
+            ) ?? $query;
         }
 
         return $query;

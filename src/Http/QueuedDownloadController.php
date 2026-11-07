@@ -40,9 +40,14 @@ final class QueuedDownloadController
             return $this->refuse(null, 'file_gone');
         }
 
+        // A file a plugin stored with a time limit is gone after it, whatever the retention says (retention 0 keeps the rest for good).
+        if (isset($meta['keep_until']) && $meta['keep_until'] < now()->getTimestamp()) {
+            return $this->refuse($meta['panel'], 'link_expired');
+        }
+
         // Somebody else (or a guest) gets the same answer as for a missing file: the link says
         // nothing about who the export belongs to.
-        if (!$this->isOwner($meta) || !$this->mayOpenPanel($meta)) {
+        if (!$this->isOwner($meta) || !$this->mayOpenPanel($meta) || !$this->mayDownload($meta)) {
             return $this->refuse($meta['panel'], 'link_unusable');
         }
 
@@ -65,6 +70,22 @@ final class QueuedDownloadController
         }
 
         return $user !== null && (string) $user === (string) $meta['user'];
+    }
+
+    /**
+     * The check of the plugin that stored the file (a scheduled report: is the owner still allowed to schedule it?).
+     *
+     * @param array{user: int|string|null, guard: string|null, scope?: string, scope_data?: array<string, mixed>} $meta
+     */
+    private function mayDownload(array $meta): bool
+    {
+        try {
+            $user = Auth::guard($meta['guard'])->user();
+
+            return $user !== null && QueuedExports::mayDownload($meta, $user);
+        } catch (Throwable) {
+            return false;
+        }
     }
 
     /**

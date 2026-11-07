@@ -636,4 +636,64 @@ class QueuedExportTest extends TestCase
         $this->travel(2)->days();
         $this->assertRefused($this->get($url), __('filament-xlsx-export::xlsx-export.link_expired'));
     }
+
+    /**
+     * @return array{0: string, 1: string} the signed link and the id of a stored export that carries a download scope
+     */
+    private function scopedLink(array $extra = []): array
+    {
+        $payload = ['user' => auth()->id(), 'guard' => 'web', 'panel' => 'admin', ...$extra];
+        $temporary = QueuedExports::temporaryFile();
+        file_put_contents($temporary, 'PK');
+        QueuedExports::store('01hz0000000000000000000000', $temporary, 'scoped.xlsx', 1, $payload);
+        @unlink($temporary);
+
+        return [QueuedExports::url('01hz0000000000000000000000'), '01hz0000000000000000000000'];
+    }
+
+    public function test_a_scoped_download_asks_the_registered_check_every_time(): void
+    {
+        [$url] = $this->scopedLink(['scope' => 'reports', 'scope_data' => ['page' => 'X']]);
+
+        // No check registered for the scope: fail closed.
+        $this->assertRefused($this->get($url));
+
+        $seen = [];
+        QueuedExports::checkDownloadsOf('reports', function ($user, array $data) use (&$seen): bool {
+            $seen[] = $data;
+
+            return false;
+        });
+        $this->assertRefused($this->get($url));
+        $this->assertSame([['page' => 'X']], $seen);
+
+        QueuedExports::checkDownloadsOf('reports', static fn (): bool => true);
+        $this->get($url)->assertOk();
+    }
+
+    public function test_an_export_with_a_keep_limit_expires_even_when_retention_is_zero(): void
+    {
+        config(['filament-xlsx-export.queue.retention_hours' => 0]);
+        [$url, $id] = $this->scopedLink(['keep_hours' => 5]);
+
+        $this->get($url)->assertOk();
+
+        $this->travel(6)->hours();
+        $this->assertRefused($this->get($url), __('filament-xlsx-export::xlsx-export.link_expired'));
+
+        $this->artisan('xlsx-export:prune')->assertSuccessful();
+        $this->assertFalse(Storage::disk('local')->exists(QueuedExports::filePath($id)));
+        $this->assertFalse(Storage::disk('local')->exists(QueuedExports::metaPath($id)));
+    }
+
+    public function test_query_using_works_with_a_differently_named_builder_parameter(): void
+    {
+        $this->orders();
+        OrdersTable::$header = static fn () => XlsxExportAction::make()
+            ->queryUsing(fn (\Illuminate\Database\Eloquent\Builder $scoped): \Illuminate\Database\Eloquent\Builder => $scoped->where('paid', true));
+
+        $component = $this->click(Livewire::test(OrdersTable::class), ['name']);
+
+        $this->assertEqualsCanonicalizing(['Alpha', 'Charlie'], $this->downloadedWorkbook($component)->column(0));
+    }
 }

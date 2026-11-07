@@ -22,13 +22,14 @@ class PruneCommand extends Command
         $option = $this->option('hours');
         $hours = is_numeric($option) ? (int) $option : QueuedExports::retentionHours();
 
-        if ($hours <= 0) {
-            $this->components->info('Retention is off (hours = 0), nothing deleted.');
+        $cutoff = $hours > 0 ? now()->subHours($hours)->getTimestamp() : null;
+
+        if ($cutoff === null) {
+            $deleted = $this->pruneLimited();
+            $this->components->info('Retention is off (hours = 0); '.$deleted.' export(s) past their own time limit deleted.');
 
             return self::SUCCESS;
         }
-
-        $cutoff = now()->subHours($hours)->getTimestamp();
 
         // Half-written files of workers that were killed mid-export.
         foreach (glob(QueuedExports::temporaryDirectory().'/xlsx-export-*') ?: [] as $leftover) {
@@ -49,8 +50,35 @@ class PruneCommand extends Command
             $deleted++;
         }
 
+        $deleted += $this->pruneLimited();
+
         $this->components->info("Deleted {$deleted} export file(s) older than {$hours} hour(s).");
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Exports a plugin stored with its own time limit (`keep_until` in the sidecar): gone after it
+     * whatever the retention is, including "never".
+     */
+    private function pruneLimited(): int
+    {
+        $disk = QueuedExports::disk();
+        $deleted = 0;
+
+        foreach ($disk->files(QueuedExports::directory()) as $file) {
+            if (!str_ends_with($file, '.json')) {
+                continue;
+            }
+
+            $meta = json_decode((string) $disk->get($file), true);
+
+            if (is_array($meta) && is_int($meta['keep_until'] ?? null) && $meta['keep_until'] < now()->getTimestamp()) {
+                $disk->delete([$file, substr($file, 0, -5).'.xlsx']);
+                $deleted++;
+            }
+        }
+
+        return $deleted;
     }
 }
