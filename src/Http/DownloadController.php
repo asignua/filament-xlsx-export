@@ -172,7 +172,7 @@ final class DownloadController
         try {
             $panel = is_string($panelId) ? Filament::getPanel($panelId) : Filament::getDefaultPanel();
 
-            return url($panel->getPath());
+            return url($panel?->getPath() ?? '/');
         } catch (Throwable) {
             return url('/');
         }

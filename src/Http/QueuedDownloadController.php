@@ -81,7 +81,13 @@ final class QueuedDownloadController
         try {
             $user = Auth::guard($meta['guard'])->user();
 
-            return !$user instanceof FilamentUser || $user->canAccessPanel(Filament::getPanel($meta['panel']));
+            if (!$user instanceof FilamentUser) {
+                return true;
+            }
+
+            $target = Filament::getPanel($meta['panel']);
+
+            return $target !== null && $user->canAccessPanel($target);
         } catch (Throwable) {
             return false;
         }
@@ -95,7 +101,8 @@ final class QueuedDownloadController
             ->send();
 
         try {
-            $fallback = url(($panelId !== null ? Filament::getPanel($panelId) : Filament::getDefaultPanel())->getPath());
+            $target = $panelId !== null ? Filament::getPanel($panelId) : Filament::getDefaultPanel();
+            $fallback = url($target?->getPath() ?? '/');
         } catch (Throwable) {
             $fallback = url('/');
         }
