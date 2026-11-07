@@ -6,6 +6,7 @@ namespace Asignua\FilamentXlsxExport\Commands;
 
 use Asignua\FilamentXlsxExport\Support\QueuedExports;
 use Illuminate\Console\Command;
+use Illuminate\Contracts\Filesystem\Filesystem;
 
 /**
  * Deletes finished queued exports (the workbook and its sidecar) once they are older than the
@@ -46,6 +47,11 @@ class PruneCommand extends Command
                 continue;
             }
 
+            // A file with its own time limit lives until it, whatever the retention is (pruneLimited() removes it after).
+            if (self::keptUntilFuture($disk, preg_replace('/\.xlsx$/', '.json', $file) ?? $file)) {
+                continue;
+            }
+
             $disk->delete($file);
             $deleted++;
         }
@@ -55,6 +61,17 @@ class PruneCommand extends Command
         $this->components->info("Deleted {$deleted} export file(s) older than {$hours} hour(s).");
 
         return self::SUCCESS;
+    }
+
+    private static function keptUntilFuture(Filesystem $disk, string $meta): bool
+    {
+        if (!$disk->exists($meta)) {
+            return false;
+        }
+
+        $data = json_decode((string) $disk->get($meta), true);
+
+        return is_array($data) && is_int($data['keep_until'] ?? null) && $data['keep_until'] > now()->getTimestamp();
     }
 
     /**

@@ -686,6 +686,22 @@ class QueuedExportTest extends TestCase
         $this->assertFalse(Storage::disk('local')->exists(QueuedExports::metaPath($id)));
     }
 
+    public function test_prune_keeps_a_file_with_a_future_keep_limit_and_deletes_it_after(): void
+    {
+        config(['filament-xlsx-export.queue.retention_hours' => 24]);
+        [$url, $id] = $this->scopedLink(['keep_hours' => 168]);
+
+        $this->travel(25)->hours();
+        $this->artisan('xlsx-export:prune')->assertSuccessful();
+        $this->assertTrue(Storage::disk('local')->exists(QueuedExports::filePath($id)));
+        $this->assertTrue(Storage::disk('local')->exists(QueuedExports::metaPath($id)));
+
+        $this->travel(169)->hours();
+        $this->artisan('xlsx-export:prune')->assertSuccessful();
+        $this->assertFalse(Storage::disk('local')->exists(QueuedExports::filePath($id)));
+        $this->assertFalse(Storage::disk('local')->exists(QueuedExports::metaPath($id)));
+    }
+
     public function test_query_using_works_with_a_differently_named_builder_parameter(): void
     {
         $this->orders();

@@ -2,9 +2,14 @@
 
 All notable changes to `asignua/filament-xlsx-export` are documented here.
 
-## Unreleased
+## v1.2.0 - 2026-11-07
 - Fix: `queryUsing()` accepts a closure whose `Builder` parameter has any name (`fn (Builder $scoped) => …`); Filament used to resolve it by type to the table's selected-records query and a header action threw `LogicException … selected records query`.
 - Feature: for plugins that store exports of their own: `QueuedExports::checkDownloadsOf($scope, $check)` makes the download route re-check access before streaming a file stored with `scope` in its payload (a scoped file with no registered check is refused), and `keep_hours` in the payload gives the file a time limit that holds even when `queue.retention_hours` is 0 (the link expires, `xlsx-export:prune` deletes the file). Exports without these keys behave as before.
+- Fix: `xlsx-export:prune` keeps a file whose sidecar has a `keep_until` in the future even when the default retention has passed (a 168-hour report used to be deleted after 24 hours while its link was still valid); it is deleted once `keep_until` passes.
+- Fix: a nullable panel from Filament 5.11.1 is handled.
+- Chore: PHPUnit 13 is allowed alongside 11 and 12.
+- Docs: links to related asign plugins and to `filament-xlsx-import`.
+- CI: the GitHub release is created from this changelog on every `v*` tag.
 
 ## v1.1.0 - 2026-10-25
 - Feature: **queued (background) export.** `->queue()` / `->queue(connection:, queue:)` / `->queueWhenMoreThan($rows)` on `XlsxExportAction` and `XlsxExportBulkAction` build the file in a job (`ExportXlsxJob`) that rebuilds the same query from the component snapshot (filters, search, sort, bulk selection, columns, per-record gates), stores it on `queue.disk`, and sends the user a database notification with a signed, expiring, owner-checked download link. Failures and over-cap tables produce notifications too. `xlsx-export:prune` (scheduled daily) removes old files. Opt-in; tenancy panels and guests stay synchronous. The job runs as the clicking user only for its own duration (the worker's locale, guard and panel are restored), re-checks `canAccessPanel()` and the action's visibility, supports a `queue.before` hook, keeps its timeout under the connection's `retry_after`, keeps temporary files under `storage/` (pruned), signs the link for the click's domain, allows `queue.max_per_user` unfinished exports per user, and stays synchronous where no notification could reach the user. New `queue.*` config and translations in all ten languages.
