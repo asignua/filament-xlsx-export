@@ -397,7 +397,7 @@ final class QueuedExports
         // A worker has no request, so the URL generator falls back to APP_URL; a panel on its own
         // domain needs the link signed for that domain. The forced root and scheme are undone straight away.
         if ($root !== null && $root !== '') {
-            URL::forceRootUrl($root);
+            self::useOrigin($root);
             URL::forceScheme(parse_url($root, PHP_URL_SCHEME) ?: null);
         }
 
@@ -405,10 +405,23 @@ final class QueuedExports
             return URL::temporarySignedRoute(self::ROUTE, now()->addHours($hours !== null && $hours > 0 ? $hours : self::linkHours()), ['id' => $id]);
         } finally {
             if ($root !== null && $root !== '') {
-                URL::forceRootUrl(null);
+                self::useOrigin(null);
                 URL::forceScheme(null);
             }
         }
+    }
+
+    /**
+     * Laravel 13 renamed forceRootUrl() to useOrigin() and deprecated the old name.
+     */
+    private static function useOrigin(?string $root): void
+    {
+        /** @var object $url */
+        $url = app('url');
+
+        // Laravel 12: useOrigin() does not exist yet. Dynamic names: static analysis only sees one of the two versions.
+        $method = method_exists($url, 'useOrigin') ? 'useOrigin' : 'forceRootUrl';
+        $url->{$method}($root); // @phpstan-ignore method.notFound
     }
 
     public static function notifyReady(Authenticatable $user, string $id, string $fileName, int $rows, ?string $root = null): void

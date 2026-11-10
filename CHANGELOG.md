@@ -5,6 +5,7 @@ All notable changes to `asignua/filament-xlsx-export` are documented here.
 ## v1.3.0 - 2026-11-10
 
 - Requires Filament ^5.11.2; replaced deprecated Filament API calls: Requires Filament ^5.11.2; no deprecated Filament API is used (verified with phpstan-deprecation-rules).
+- Laravel 13 deprecations: the workbench panel uses `PreventRequestForgery` (with a `VerifyCsrfToken` fallback for Laravel 12); `UrlGenerator::forceRootUrl()` -> `useOrigin()` (Laravel 12 fallback kept). Laravel 12 is still supported.
 
 ## v1.2.0 - 2026-11-07
 - Fix: `queryUsing()` accepts a closure whose `Builder` parameter has any name (`fn (Builder $scoped) => …`); Filament used to resolve it by type to the table's selected-records query and a header action threw `LogicException … selected records query`.
