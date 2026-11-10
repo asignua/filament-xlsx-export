@@ -13,6 +13,7 @@ use Filament\Notifications\Notification;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Routing\UrlGenerator;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -416,12 +417,11 @@ final class QueuedExports
      */
     private static function useOrigin(?string $root): void
     {
-        /** @var object $url */
-        $url = app('url');
+        $url = app(UrlGenerator::class);
 
         // Laravel 12: useOrigin() does not exist yet. Dynamic names: static analysis only sees one of the two versions.
-        $method = method_exists($url, 'useOrigin') ? 'useOrigin' : 'forceRootUrl';
-        $url->{$method}($root); // @phpstan-ignore method.notFound
+        $method = version_compare(app()->version(), '13.0.0', '>=') ? 'useOrigin' : 'forceRootUrl';
+        $url->{$method}($root);
     }
 
     public static function notifyReady(Authenticatable $user, string $id, string $fileName, int $rows, ?string $root = null): void
