@@ -2,6 +2,10 @@
 
 All notable changes to `asignua/filament-xlsx-export` are documented here.
 
+## v1.3.0 - 2026-11-10
+
+- Requires Filament ^5.11.2; replaced deprecated Filament API calls: Requires Filament ^5.11.2; no deprecated Filament API is used (verified with phpstan-deprecation-rules).
+
 ## v1.2.0 - 2026-11-07
 - Fix: `queryUsing()` accepts a closure whose `Builder` parameter has any name (`fn (Builder $scoped) => …`); Filament used to resolve it by type to the table's selected-records query and a header action threw `LogicException … selected records query`.
 - Feature: for plugins that store exports of their own: `QueuedExports::checkDownloadsOf($scope, $check)` makes the download route re-check access before streaming a file stored with `scope` in its payload (a scoped file with no registered check is refused), and `keep_hours` in the payload gives the file a time limit that holds even when `queue.retention_hours` is 0 (the link expires, `xlsx-export:prune` deletes the file). Exports without these keys behave as before.
