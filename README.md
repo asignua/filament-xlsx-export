@@ -443,6 +443,8 @@ See [CHANGELOG.md](https://github.com/asignua/filament-xlsx-export/blob/main/CHA
 
 All plugins: <https://filamentphp.com/plugins?q=asign>
 
+Catalogue of free and commercial plugins: <https://asign.tech/en/plugins>
+
 ## License
 
 The MIT License (MIT). See [LICENSE.md](https://github.com/asignua/filament-xlsx-export/blob/main/LICENSE.md).
